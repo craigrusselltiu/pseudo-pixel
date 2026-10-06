@@ -9,6 +9,15 @@ images.
 
 **Status:** planning. See [PLAN.md](PLAN.md).
 
+## Usage (so far)
+
+```
+python pp.py run    examples/test examples/test/build.py   # build the test character's .blend
+python pp.py render examples/test [animation]              # spritesheets + JSON in examples/test/out
+```
+
+Blender is found via the `BLENDER` environment variable, `PATH`, or the default install location.
+
 ## Requirements
 
 - Blender 5.2 LTS or newer

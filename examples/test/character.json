@@ -1,0 +1,12 @@
+{
+  "name": "test",
+  "output": {
+    "frame": [32, 32],
+    "pixels_per_unit": 16,
+    "fps": 12
+  },
+  "animations": {
+    "idle": { "loop": true },
+    "attack": { "loop": false, "frame": [48, 32] }
+  }
+}

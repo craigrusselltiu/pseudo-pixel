@@ -1,0 +1,4 @@
+__pycache__/
+*.blend1
+examples/test/*.blend
+examples/test/out/
