@@ -153,3 +153,21 @@ def retime(old_fps, new_fps, actions=None):
         if act.use_frame_range:
             act.frame_start, act.frame_end = round(act.frame_start * ratio), round(act.frame_end * ratio)
     bpy.context.scene.render.fps = new_fps
+
+
+def import_action(blend_path, name, new_name=None):
+    """Copy an action from another character's .blend (same bone names) into this one, replacing any
+    action already called `new_name` (default: the same name). Preview it afterwards: keys that depend
+    on proportions, such as lunges and bobs, may need adjusting."""
+    new_name = new_name or name
+    with bpy.data.libraries.load(blend_path, link=False) as (src, dst):
+        if name not in src.actions:
+            raise KeyError(f"no action {name!r} in {blend_path}; actions: {list(src.actions)}")
+        dst.actions = [name]
+    act = dst.actions[0]
+    old = bpy.data.actions.get(new_name)
+    if old and old != act:
+        bpy.data.actions.remove(old)
+    act.name = new_name
+    act.use_fake_user = True
+    return act

@@ -2,4 +2,5 @@ __pycache__/
 *.blend1
 examples/*/*.blend
 examples/*/out/
+!examples/knight/out/
 examples/*/previews/

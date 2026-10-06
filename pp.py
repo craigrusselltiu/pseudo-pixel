@@ -1,5 +1,6 @@
 """pseudo-pixel CLI. Finds Blender and runs the scripts in pp/ inside it.
 
+  python pp.py new     <character_dir> <reference_image>    create a character folder and character.json
   python pp.py run     <character_dir> <script.py>          apply a script to the .blend and save it
   python pp.py inspect <character_dir>                      print the .blend's state as JSON
   python pp.py preview <character_dir> [--anim NAME ...]    contact sheets + checks in previews/
@@ -8,6 +9,7 @@
 Add --verbose to see all of Blender's output.
 """
 import glob
+import json
 import os
 import re
 import shutil
@@ -57,10 +59,41 @@ def blender(script, char_dir, args, verbose=False):
     return proc.wait()
 
 
+DEFAULT_OUTPUT = {
+    "frame": [48, 48],
+    "pixels_per_unit": 20,
+    "anchor": "bottom-center",
+    "fps": 12,
+    "shading_steps": 3,
+    "light": [-1, -1, 1],
+    "outline": {"color": "#1a1c2c", "mode": "inner"},
+    "despeckle": True,
+}
+
+
+def new_character(char_dir, reference):
+    """Create <char_dir>/ with the reference image, scripts/ and a default character.json."""
+    if os.path.exists(os.path.join(char_dir, "character.json")):
+        sys.exit(f"{char_dir} already has a character.json")
+    if not os.path.isfile(reference):
+        sys.exit(f"no reference image at {reference}")
+    os.makedirs(os.path.join(char_dir, "scripts"), exist_ok=True)
+    ref_name = "reference" + os.path.splitext(reference)[1].lower()
+    shutil.copyfile(reference, os.path.join(char_dir, ref_name))
+    cfg = {"name": os.path.basename(os.path.normpath(char_dir)), "reference": ref_name, "rig": "humanoid",
+           "output": DEFAULT_OUTPUT, "animations": {}}
+    with open(os.path.join(char_dir, "character.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+    print(f"created {char_dir}: {ref_name}, character.json, scripts/")
+
+
 def main():
     argv = sys.argv[1:]
     verbose = "--verbose" in argv
     argv = [a for a in argv if a != "--verbose"]
+    if len(argv) == 3 and argv[0] == "new":
+        return new_character(os.path.abspath(argv[1]), argv[2])
     if len(argv) < 2 or argv[0] not in SCRIPTS:
         sys.exit(__doc__)
     cmd, char_dir, rest = argv[0], os.path.abspath(argv[1]), argv[2:]

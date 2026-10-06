@@ -1,0 +1,104 @@
+{
+  "frames": [
+    {
+      "filename": "attack 0",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 80,
+        "h": 56
+      },
+      "duration": 167,
+      "rootMotion": {
+        "x": 0.0,
+        "y": 0.0
+      }
+    },
+    {
+      "filename": "attack 1",
+      "frame": {
+        "x": 80,
+        "y": 0,
+        "w": 80,
+        "h": 56
+      },
+      "duration": 250,
+      "rootMotion": {
+        "x": 0.0,
+        "y": 0.0
+      }
+    },
+    {
+      "filename": "attack 2",
+      "frame": {
+        "x": 160,
+        "y": 0,
+        "w": 80,
+        "h": 56
+      },
+      "duration": 83,
+      "rootMotion": {
+        "x": 0.0,
+        "y": 0.0
+      }
+    },
+    {
+      "filename": "attack 3",
+      "frame": {
+        "x": 240,
+        "y": 0,
+        "w": 80,
+        "h": 56
+      },
+      "duration": 83,
+      "rootMotion": {
+        "x": 6.0,
+        "y": 0.0
+      }
+    },
+    {
+      "filename": "attack 4",
+      "frame": {
+        "x": 320,
+        "y": 0,
+        "w": 80,
+        "h": 56
+      },
+      "duration": 250,
+      "rootMotion": {
+        "x": 6.0,
+        "y": 0.0
+      }
+    },
+    {
+      "filename": "attack 5",
+      "frame": {
+        "x": 400,
+        "y": 0,
+        "w": 80,
+        "h": 56
+      },
+      "duration": 250,
+      "rootMotion": {
+        "x": 6.0,
+        "y": 0.0
+      }
+    }
+  ],
+  "meta": {
+    "app": "pseudo-pixel",
+    "image": "attack.png",
+    "size": {
+      "w": 480,
+      "h": 56
+    },
+    "frameTags": [
+      {
+        "name": "attack",
+        "from": 0,
+        "to": 5,
+        "direction": "forward"
+      }
+    ]
+  }
+}

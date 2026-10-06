@@ -325,8 +325,10 @@ bone, so a key can be pasted into an edit script.
    What the review loop caught went into `modelling.md`: capes deeper than the body cover it, face
    features must stick out in y to show from the side, spheres sunk into the ground show when the
    character leaves it (hence the `dome` shape).
-4. **The skill:** `SKILL.md` that ties the workflows together, including the review loops and the "never
-   overwrite the .blend" rule. Run the end-to-end example in `examples/knight/`.
+4. **The skill (done):** `SKILL.md` that ties the workflows together, including the review loops and the
+   "never overwrite the .blend" rule, plus `AGENTS.md`, `pp.py new` and `anim.import_action` (copy an
+   action from another character). End-to-end example in `examples/knight/`: model, idle in the
+   reference's pose, walk and attack, with the rendered sheets committed.
 5. **Later (only if needed):** normal-map sheets, the parts/actions library, more facing directions, IK,
    a smooth-skinning option, packaging as plugins for specific agents.
 
