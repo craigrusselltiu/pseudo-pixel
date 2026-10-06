@@ -12,6 +12,7 @@ a = action("attack")                       # replaces an existing action of that
 a.key(0, {"upper_arm.R": (20, 0, 0)})      # (x, y, z) degrees, see rig.md
 a.key(2, {"upper_arm.R": (200, 0, 0), "chest": (-10, 0, 0)})
 a.key(6, {"upper_arm.R": (85, 0, 0), "root": {"loc": (0.25, 0, 0)}})
+a.key(9, {"body": {"scale": (1.2, 1.2, 0.8)}})  # squash (world-aligned factors)
 a.key(11, "rest")                          # every bone back to rest
 a.end(13)                                  # last frame; writes the action
 ```

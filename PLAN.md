@@ -318,8 +318,13 @@ bone, so a key can be pasted into an edit script.
 2. **Rig + animation helpers (done):** the humanoid template, axis conventions, `anim.py`, `pp.py
    inspect`, contact-sheet previews (and the turnaround preview from milestone 3). Hand-written idle,
    walk and attack in `examples/humanoid/`.
-3. **Modelling helpers + reference-to-model:** `build.py`, turnaround previews, `references/modelling.md`.
-   Test on 3-5 varied references (humanoid, armoured, caped, non-humanoid).
+3. **Modelling helpers + reference-to-model (done):** `build.py` (parts, mirroring, the `Ref`
+   measuring helper), turnaround previews, `references/modelling.md`. Tested on three references drawn
+   for the purpose: an armoured knight with sword and shield (`examples/knight`), a caped mage with a
+   staff (`examples/mage`) and a slime on a custom rig with squash-and-stretch keys (`examples/slime`).
+   What the review loop caught went into `modelling.md`: capes deeper than the body cover it, face
+   features must stick out in y to show from the side, spheres sunk into the ground show when the
+   character leaves it (hence the `dome` shape).
 4. **The skill:** `SKILL.md` that ties the workflows together, including the review loops and the "never
    overwrite the .blend" rule. Run the end-to-end example in `examples/knight/`.
 5. **Later (only if needed):** normal-map sheets, the parts/actions library, more facing directions, IK,

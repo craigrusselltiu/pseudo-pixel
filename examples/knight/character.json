@@ -1,0 +1,16 @@
+{
+  "name": "knight",
+  "reference": "reference.png",
+  "rig": "humanoid",
+  "output": {
+    "frame": [48, 48],
+    "pixels_per_unit": 20,
+    "anchor": "bottom-center",
+    "fps": 12,
+    "shading_steps": 3,
+    "light": [-1, -1, 1],
+    "outline": { "color": "#1a1c2c", "mode": "inner" },
+    "despeckle": true
+  },
+  "animations": {}
+}

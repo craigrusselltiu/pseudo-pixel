@@ -7,8 +7,8 @@ An LLM coding agent builds the model, rig and animations in Blender, and you can
 in Blender as well. It works with any agent and model that can run shell commands, write Python and read
 images.
 
-**Status:** the render pipeline, rig and animation helpers work (milestones 1-2); the agent skill is
-not written yet. See [PLAN.md](PLAN.md).
+**Status:** the render pipeline, rig, animation and modelling helpers work (milestones 1-3); the
+agent skill is not written yet. See [PLAN.md](PLAN.md).
 
 ## Usage (so far)
 
@@ -30,7 +30,10 @@ python pp.py preview examples/humanoid
 python pp.py render examples/humanoid
 ```
 
-Conventions for rigs and animation scripts are in
+`examples/knight`, `examples/mage` and `examples/slime` are modelled from their `reference.png` with
+`pp/build.py`; preview them with `python pp.py preview examples/<name> --turnaround`.
+
+Conventions for modelling, rigs and animation scripts are in
 [skills/pseudo-pixel/references](skills/pseudo-pixel/references).
 
 Blender is found via the `BLENDER` environment variable, `PATH`, or the default install location.

@@ -70,14 +70,17 @@ def describe_action(arm, act):
     for f in frames:
         pose = {}
         for name, fcs in curves.items():
-            vals = {"rotation_euler": [0.0] * 3, "location": [0.0] * 3}
+            vals = {"rotation_euler": [0.0] * 3, "location": [0.0] * 3, "scale": [1.0] * 3}
             for fc in fcs:
-                if fc.data_path.endswith(("rotation_euler", "location")):
+                if fc.data_path.endswith(("rotation_euler", "location", "scale")):
                     vals[fc.data_path.rsplit(".", 1)[1]][fc.array_index] = fc.evaluate(f)
-            rot, loc = rig.from_pose(bones[name], vals["rotation_euler"], vals["location"])
+            rot, loc, scale = rig.from_pose(bones[name], vals["rotation_euler"], vals["location"],
+                                            vals["scale"])
             entry = {"rot": r(rot, 1)}
             if any(fc.data_path.endswith("location") for fc in fcs):
                 entry["loc"] = r(loc)
+            if any(fc.data_path.endswith(".scale") for fc in fcs):
+                entry["scale"] = r(scale)
             pose[name] = entry
         keys[f] = dict(sorted(pose.items()))
     interps = sorted({kp.interpolation for fc in anim.fcurves(act) for kp in fc.keyframe_points})

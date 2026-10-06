@@ -6,7 +6,8 @@
     a.key(9, "rest")
     a.end(11)
 
-Pose values follow the rig convention in rig.py: (x, y, z) Euler degrees, or {"rot": ..., "loc": ...}.
+Pose values follow the rig convention in rig.py: (x, y, z) Euler degrees, or a dict with any of
+"rot", "loc" and "scale".
 Each key carries over the previous key's pose and changes only the bones it lists. Keys are written
 when end() is called.
 """
@@ -14,16 +15,16 @@ import bpy
 
 import rig
 
-REST = {"rot": (0.0, 0.0, 0.0), "loc": (0.0, 0.0, 0.0)}
+REST = {"rot": (0.0, 0.0, 0.0), "loc": (0.0, 0.0, 0.0), "scale": (1.0, 1.0, 1.0)}
 
 
 def _channels(value):
     if value == "rest":
         return dict(REST)
     if isinstance(value, dict):
-        unknown = set(value) - {"rot", "loc"}
+        unknown = set(value) - {"rot", "loc", "scale"}
         if unknown:
-            raise ValueError(f"unknown pose keys {unknown}; use 'rot' and 'loc'")
+            raise ValueError(f"unknown pose keys {unknown}; use 'rot', 'loc' and 'scale'")
         return {k: tuple(float(x) for x in v) for k, v in value.items()}
     return {"rot": tuple(float(x) for x in value)}
 
@@ -51,7 +52,7 @@ class Action:
         self.arm = rig.armature(armature)
         self.keys = {}  # frame -> {bone: channels}
         self.pose = {}  # current carried-over pose
-        self.loc_bones = set()
+        self.loc_bones, self.scale_bones = set(), set()
 
     def key(self, frame, pose):
         """Key a pose at a whole frame: a {bone: value} dict, or "rest" for every bone at rest."""
@@ -66,6 +67,8 @@ class Action:
                 ch = _channels(value)
                 if "loc" in ch:
                     self.loc_bones.add(bone)
+                if "scale" in ch:
+                    self.scale_bones.add(bone)
                 self.pose[bone] = {**REST, **self.pose.get(bone, {}), **ch}
         self.keys[int(frame)] = {b: dict(c) for b, c in self.pose.items()}
         return self
@@ -99,16 +102,20 @@ class Action:
         for f in sorted(self.keys):
             for name in bones:
                 pb, ch = self.arm.pose.bones[name], self.keys[f].get(name, REST)
-                euler, loc = rig.to_pose(pb.bone, ch["rot"], ch["loc"])
+                euler, loc, scale = rig.to_pose(pb.bone, ch["rot"], ch["loc"], ch["scale"])
                 pb.rotation_euler = euler
                 pb.keyframe_insert("rotation_euler", frame=f, group=name)
                 if name in self.loc_bones:
                     pb.location = loc
                     pb.keyframe_insert("location", frame=f, group=name)
+                if name in self.scale_bones:
+                    pb.scale = scale
+                    pb.keyframe_insert("scale", frame=f, group=name)
         set_interpolation(act, self.interpolation)
         for pb in self.arm.pose.bones:  # leave the armature in its rest pose
             pb.rotation_euler = (0, 0, 0)
             pb.location = (0, 0, 0)
+            pb.scale = (1, 1, 1)
         return act
 
 

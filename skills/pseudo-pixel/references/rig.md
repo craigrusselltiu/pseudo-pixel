@@ -76,6 +76,9 @@ point the sword forward while the arm is raised, counter-rotate the hand.
 is outward). Use it on `hips` for body bob (one pixel is `1 / pixels_per_unit`) and on `root` for
 root motion. Root location is not rendered: it becomes per-frame `rootMotion` offsets in the JSON.
 
+`{"scale": (x, y, z)}` scales a bone (and its children) along the world axes. Use it for squash and
+stretch on bones whose head sits where the squash should pivot, such as a slime's body on the ground.
+
 ## FK only
 
 There is no IK. Feet can slide during walks; keep stride poses consistent and check the contact

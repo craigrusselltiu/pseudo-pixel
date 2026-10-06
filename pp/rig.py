@@ -8,7 +8,7 @@ Convention (details in skills/pseudo-pixel/references/rig.md):
 - Pose values are Euler XYZ in degrees. On .R bones Y and Z are mirrored, so the same numbers mean the
   same motion on both sides: positive Z swings the tip outward, away from the body.
 - Locations are in world-aligned units (x forward, y left, z up), with y mirrored on .R bones so +y is
-  outward on both sides.
+  outward on both sides. Scales are factors along the same world axes (for squash and stretch).
 """
 import math
 
@@ -120,8 +120,15 @@ def _sides(bone_name):
     return (1, -1, -1) if is_right(bone_name) else (1, 1, 1)
 
 
-def to_pose(bone, rot=None, loc=None):
-    """Convention values (degrees, world-aligned units) -> pose-bone (Euler radians, local location)."""
+def _axis_map(bone):
+    """For each local axis, the world axis it lies (closest) along in the rest pose."""
+    m = bone.matrix_local.to_3x3()
+    return [max(range(3), key=lambda j: abs(m[j][i])) for i in range(3)]
+
+
+def to_pose(bone, rot=None, loc=None, scale=None):
+    """Convention values (degrees, world-aligned units and factors) -> pose-bone values
+    (Euler radians, local location, local scale). Missing inputs give None."""
     sx, sy, sz = _sides(bone.name)
     euler = None
     if rot is not None:
@@ -130,13 +137,19 @@ def to_pose(bone, rot=None, loc=None):
     if loc is not None:
         w = Vector((loc[0], loc[1] * (-1 if is_right(bone.name) else 1), loc[2]))
         local = bone.matrix_local.to_3x3().inverted() @ w
-    return euler, local
+    local_scale = None
+    if scale is not None:
+        local_scale = Vector([scale[j] for j in _axis_map(bone)])
+    return euler, local, local_scale
 
 
-def from_pose(bone, euler, local):
-    """Inverse of to_pose: pose-bone values -> ([x, y, z] degrees, [x, y, z] world-aligned units)."""
+def from_pose(bone, euler, local, local_scale=(1, 1, 1)):
+    """Inverse of to_pose: pose-bone values -> (degrees, world-aligned location, world-aligned scale)."""
     sx, sy, sz = _sides(bone.name)
     rot = [math.degrees(v) * s for v, s in zip(euler, (sx, sy, sz))]
     w = bone.matrix_local.to_3x3() @ Vector(local)
     loc = [w.x, w.y * (-1 if is_right(bone.name) else 1), w.z]
-    return rot, loc
+    scale = [1.0, 1.0, 1.0]
+    for i, j in enumerate(_axis_map(bone)):
+        scale[j] = local_scale[i]
+    return rot, loc, scale
