@@ -12,14 +12,22 @@ images.
 *`examples/knight`: the reference, then the idle, walk and attack sheets an agent built from it
 (shown at 4x).*
 
-**Status:** milestones 1-4 of [PLAN.md](PLAN.md) are done: render pipeline, rig and animation helpers,
-modelling helpers, and the agent skill.
+**Status:** every milestone in [PLAN.md](PLAN.md) is implemented: render pipeline, rig and animation
+helpers, modelling helpers, the agent skill, and the extras (normal maps, extra views, a parts and
+actions library, leg IK, optional smooth skinning, agent packaging).
 
 ## Using it with an agent
 
-Point your coding agent at the skill in [skills/pseudo-pixel/SKILL.md](skills/pseudo-pixel/SKILL.md).
-Agents that load Agent Skills can install the `skills/pseudo-pixel` folder; others find it through
-[AGENTS.md](AGENTS.md). Then ask for what you want, for example:
+Install Blender 5.2 or newer, clone this repository, then give your agent the skill:
+
+- **Claude Code:** `/plugin marketplace add craigrusselltiu/pseudo-pixel`, then
+  `/plugin install pseudo-pixel@pseudo-pixel`. Or run Claude Code inside the clone.
+- **Gemini CLI:** `gemini extensions install https://github.com/craigrusselltiu/pseudo-pixel`.
+- **Codex, OpenCode, Cursor and others:** run the agent in the clone (it reads [AGENTS.md](AGENTS.md)),
+  or copy `skills/pseudo-pixel` wherever your agent loads Agent Skills from.
+
+The skill is [skills/pseudo-pixel/SKILL.md](skills/pseudo-pixel/SKILL.md). Then ask for what you want,
+for example:
 
 - "Make a character from `art/knight.png` with idle, walk and attack, 48x48 at 12 fps."
 - "Add a hit animation to the knight."
@@ -81,6 +89,8 @@ them:
 | `outline` | none | `{"color": "#1a1c2c", "mode": "outer" or "inner", "depth": 1}` |
 | `columns` | one row | Frames per row in the sheet |
 | `expand_holds` | `false` | Repeat held frames instead of giving them longer durations |
+| `normals` | `false` | Also write a normal-map sheet (`<name>_n.png`) for lighting sprites in the engine |
+| `views` | `[0]` | Camera angles to render, in degrees around the character (0 side, 90 front, 270 back); more than one writes `<name>_<angle>` sheets |
 | `loop` | `false` | Per animation: the last frame repeats the first and is left out |
 
 ## Requirements

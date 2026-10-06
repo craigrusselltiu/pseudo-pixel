@@ -11,6 +11,8 @@ Pose values follow the rig convention in rig.py: (x, y, z) Euler degrees, or a d
 Each key carries over the previous key's pose and changes only the bones it lists. Keys are written
 when end() is called.
 """
+import math
+
 import bpy
 
 import rig
@@ -171,3 +173,84 @@ def import_action(blend_path, name, new_name=None):
     act.name = new_name
     act.use_fake_user = True
     return act
+
+
+def _r(v, n=3):
+    return [round(x, n) + 0.0 for x in v]
+
+
+def describe(act, arm=None):
+    """An action as JSON-ready data in the anim.py convention: range, loop, interpolation and, for every
+    keyed frame, the full pose of every animated bone. load() turns it back into an action."""
+    arm = arm or rig.armature()
+    bones = arm.data.bones
+    curves = {}
+    for fc in fcurves(act):
+        name = fc.data_path.split('"')[1] if fc.data_path.startswith("pose.bones") else None
+        if name in bones:
+            curves.setdefault(name, []).append(fc)
+    frames = sorted({int(round(kp.co.x)) for fcs in curves.values() for fc in fcs
+                     for kp in fc.keyframe_points})
+    keys = {}
+    for f in frames:
+        pose = {}
+        for name, fcs in curves.items():
+            vals = {"rotation_euler": [0.0] * 3, "location": [0.0] * 3, "scale": [1.0] * 3}
+            for fc in fcs:
+                if fc.data_path.endswith(("rotation_euler", "location", "scale")):
+                    vals[fc.data_path.rsplit(".", 1)[1]][fc.array_index] = fc.evaluate(f)
+            rot, loc, scale = rig.from_pose(bones[name], vals["rotation_euler"], vals["location"],
+                                            vals["scale"])
+            entry = {"rot": _r(rot, 1)}
+            if any(fc.data_path.endswith("location") for fc in fcs):
+                entry["loc"] = _r(loc)
+            if any(fc.data_path.endswith(".scale") for fc in fcs):
+                entry["scale"] = _r(scale)
+            pose[name] = entry
+        keys[f] = dict(sorted(pose.items()))
+    interps = sorted({kp.interpolation for fc in fcurves(act) for kp in fc.keyframe_points})
+    return {"range": [int(act.frame_range[0]), int(act.frame_range[1])],
+            "loop": bool(act.get("pp_loop", False)), "interpolation": interps, "keys": keys}
+
+
+def load(name, data, armature=None):
+    """Recreate an action from describe() data (from inspect output, a library file or another
+    character). Bones this armature lacks are skipped with a warning."""
+    interps = data.get("interpolation") or ["CONSTANT"]
+    a = action(name, data.get("loop", False), interps[0] if len(interps) == 1 else "CONSTANT", armature)
+    bones = a.arm.pose.bones
+    missing = set()
+    for f in sorted(data["keys"], key=int):
+        pose = data["keys"][f]
+        if pose == "rest":
+            a.key(int(f), "rest")
+            continue
+        missing |= {b for b in pose if b not in bones}
+        a.key(int(f), {b: v for b, v in pose.items() if b in bones})
+    if missing:
+        print(f"WARNING action {name}: skipped bones this rig doesn't have: {sorted(missing)}")
+    return a.end(int(data["range"][1]))
+
+
+def leg_ik(side, ankle, hips=(0, 0, 0), toe=0.0, armature=None):
+    """Pose values that put the ankle of leg `side` ("L" or "R") at `ankle` = (x, z) in units.
+
+    Solves the thigh and shin swing in the side view (knee bending forward) and keeps the foot level,
+    tilted by `toe` degrees (positive: toe down). `hips` is the hips location keyed in the same pose;
+    the hips must not be rotated. Use it to plant feet in walks and crouches:
+        a.key(0, {"hips": {"loc": (0, 0, -0.05)}, **leg_ik("L", (0.25, 0.06), hips=(0, 0, -0.05))})
+    Returns {thigh: (x, 0, 0), shin: (x, 0, 0), foot: (x, 0, 0)}. Out-of-reach targets straighten the leg.
+    """
+    arm = rig.armature(armature)
+    thigh, shin = arm.data.bones[f"thigh.{side}"], arm.data.bones[f"shin.{side}"]
+    l1, l2 = thigh.length, shin.length
+    hx, hz = thigh.head_local.x + hips[0], thigh.head_local.z + hips[2]
+    dx, dz = ankle[0] - hx, ankle[1] - hz
+    d = min(max(math.hypot(dx, dz), abs(l1 - l2) + 1e-6), l1 + l2 - 1e-6)
+    aim = math.atan2(dx, -dz)  # angle of the hip->ankle line, from straight down toward +X
+    hip_angle = math.acos((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d))
+    knee_angle = math.acos((l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2))
+    t1 = math.degrees(aim + hip_angle)      # thigh swings forward of the line: the knee points forward
+    t2 = -math.degrees(math.pi - knee_angle)  # shin folds back
+    return {f"thigh.{side}": (round(t1, 2), 0, 0), f"shin.{side}": (round(t2, 2), 0, 0),
+            f"foot.{side}": (round(t1 + t2 + toe, 2), 0, 0)}

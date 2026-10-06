@@ -1,0 +1,11 @@
+{
+  "name": "pseudo-pixel",
+  "owner": { "name": "Craig Russell Tiu" },
+  "plugins": [
+    {
+      "name": "pseudo-pixel",
+      "source": "./",
+      "description": "Turn a character reference image into pixel-art spritesheets with Blender."
+    }
+  ]
+}

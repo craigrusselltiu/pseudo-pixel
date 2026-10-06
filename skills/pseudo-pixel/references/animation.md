@@ -30,6 +30,15 @@ a.end(13)                                  # last frame; writes the action
   `rootMotion` in the JSON for the engine to apply.
 - `a.pose_at(frame)` returns a keyed pose; `mirrored(pose)` swaps .L and .R. Use them for the second
   half of walk and run cycles.
+- **Planting feet:** `leg_ik(side, ankle=(x, z), hips=(0, 0, dz), toe=0)` returns thigh, shin and foot
+  values that put the ankle at (x, z) with the knee bent forward and the foot level (tilted by `toe`
+  degrees, positive toe-down). Pass the same hips location you key. They are ordinary keys, so
+  `inspect` shows plain rotations. Use it for crouches, landings and walks whose feet slide:
+
+  ```python
+  a.key(4, {"hips": {"loc": (0, 0, -0.2)}, **leg_ik("L", (0.1, 0.06), hips=(0, 0, -0.2)),
+            **leg_ik("R", (-0.1, 0.06), hips=(0, 0, -0.2), toe=15)})
+  ```
 
 ## Timing at 12 fps
 

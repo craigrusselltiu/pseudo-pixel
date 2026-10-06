@@ -69,6 +69,15 @@ mirror("forearm.L")            # creates forearm.R on the mirrored bone
 
 Typical counts: a humanoid has 15-25 parts. More than about 40 at 48 px is usually wasted.
 
+**Reusing parts.** `library.load_parts("../../library/parts/great_helm.json", scale=0.9)` adds saved
+parts on the bones of the same names, placed relative to each bone, so they fit other proportions.
+Save a character's parts with `library.save_parts(path, [names])`.
+
+**Smooth skinning (optional).** `build.smooth_skin()` joins copies of all parts into one mesh with
+automatic weights, so elbows and knees bend instead of the parts sliding past each other. The rigid
+parts stay in the .blend, hidden: edit them with `part()` and call `smooth_skin()` again. Only worth
+it for large sprites (64 px and up) or soft characters. Rigid parts are the default.
+
 ## 4. Non-humanoids
 
 Use `rig.custom({"root": (...), "body": (...), ...})` with `root` first, at the origin on the

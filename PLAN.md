@@ -20,8 +20,9 @@ keep going.
 
 - Generating characters from text alone (a reference image is required).
 - Image-to-3D ML models, Mixamo, or other external services. Blender is the only dependency.
-- Multiple facing directions. Characters face right; flip them in the game engine.
-- Smooth skinning or weight painting (see "Rig" below).
+- Multiple facing directions by default. Characters face right; flip them in the game engine. (Extra
+  camera angles are available through `views`, see milestone 5.)
+- Hand weight painting (see "Rig" below). Optional automatic smooth skinning exists (milestone 5).
 - A GUI or a standalone app. The interface is a coding agent plus a skill.
 
 ## Shape of the project
@@ -53,6 +54,7 @@ pseudo-pixel/                       # this repo
     post.py                         # quantize, despeckle, outline, pack, review-sheet helpers (numpy)
     preview.py                      # `pp.py preview`: turnaround and contact-sheet previews + checks
     run.py                          # `pp.py run`: apply a script to the .blend and save
+    library.py                      # parts and actions saved as JSON for reuse
   pp.py                             # thin CLI that finds Blender and runs the scripts above
   examples/
     knight/                         # a sample character, end to end
@@ -329,8 +331,20 @@ bone, so a key can be pasted into an edit script.
    "never overwrite the .blend" rule, plus `AGENTS.md`, `pp.py new` and `anim.import_action` (copy an
    action from another character). End-to-end example in `examples/knight/`: model, idle in the
    reference's pose, walk and attack, with the rendered sheets committed.
-5. **Later (only if needed):** normal-map sheets, the parts/actions library, more facing directions, IK,
-   a smooth-skinning option, packaging as plugins for specific agents.
+5. **Extras (done):**
+   - **Normal-map sheets:** `normals: true` renders camera-space normals into `<name>_n.png`, with the
+     same layout as the colour sheet.
+   - **Parts and actions library:** `pp/library.py` saves parts (relative to their bones) and actions
+     (in the `anim.py` convention) as JSON, so they can be read, diffed and reused across characters.
+   - **More facing directions:** `views: [0, 90, ...]` renders extra camera angles as separate sheets.
+     Left-facing sprites are still a flip in the engine.
+   - **IK:** `anim.leg_ik` solves the two-bone leg analytically and returns ordinary FK keys, so feet
+     can be planted without IK constraints, and `inspect` and hand edits keep working on plain
+     rotations.
+   - **Smooth skinning:** `build.smooth_skin()` joins the parts into one auto-weighted mesh. The rigid
+     parts stay as the editable source.
+   - **Packaging:** a Claude Code plugin and marketplace (`.claude-plugin/`), a Gemini CLI extension
+     (`gemini-extension.json`), and `AGENTS.md` for everything else.
 
 ## Research notes
 

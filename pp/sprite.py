@@ -24,6 +24,8 @@ DEFAULTS = {
     "despeckle": False,
     "expand_holds": False,
     "columns": None,
+    "normals": False,
+    "views": [0],
 }
 SHADOW = 0.45  # brightness of the darkest toon step, as a factor on the base colour (linear)
 CAM_DIST = 20  # camera distance from the origin
@@ -139,12 +141,35 @@ class Renderer:
         nt.links.new(emit.outputs[0], out.inputs["Surface"])
         return mat
 
+    def _normal_material(self):
+        """Emits the camera-space normal as n * 0.5 + 0.5 (x right, y up, z toward the camera)."""
+        mat = bpy.data.materials.get("pp_normals")
+        if mat:
+            return mat
+        mat = bpy.data.materials.new("pp_normals")
+        nt = mat.node_tree
+        nt.nodes.clear()
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        xf = nt.nodes.new("ShaderNodeVectorTransform")
+        xf.vector_type, xf.convert_from, xf.convert_to = "NORMAL", "WORLD", "CAMERA"
+        enc = nt.nodes.new("ShaderNodeVectorMath")
+        enc.operation = "MULTIPLY_ADD"
+        enc.inputs[1].default_value = (0.5, 0.5, -0.5)  # Blender's camera space has +Z pointing away
+        enc.inputs[2].default_value = (0.5, 0.5, 0.5)
+        emit = nt.nodes.new("ShaderNodeEmission")
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+        nt.links.new(geo.outputs["Normal"], xf.inputs[0])
+        nt.links.new(xf.outputs[0], enc.inputs[0])
+        nt.links.new(enc.outputs["Vector"], emit.inputs["Color"])
+        nt.links.new(emit.outputs[0], out.inputs["Surface"])
+        return mat
+
     def _set_output(self, kind):
         s, vs = self.scene.render.image_settings, self.scene.view_settings
-        if kind == "color":
+        if kind in ("color", "normals"):
             s.file_format, s.color_mode, s.color_depth = "PNG", "RGBA", "8"
-            vs.view_transform = "Standard"
-            bpy.context.view_layer.material_override = None
+            vs.view_transform = "Standard" if kind == "color" else "Raw"
+            bpy.context.view_layer.material_override = None if kind == "color" else self._normal_material()
         else:  # ids: object index in R, depth in pixels in G, as raw floats
             s.file_format, s.color_mode, s.color_depth = "OPEN_EXR", "RGBA", "32"
             vs.view_transform = "Raw"
@@ -164,7 +189,7 @@ class Renderer:
         self.cam.rotation_euler = (math.pi / 2, 0, t)
         self.scene.render.resolution_x, self.scene.render.resolution_y = w, h
         self._id_material().node_tree.nodes["depth"].inputs[1].default_value = ppu
-        self.frame_size, self.ppu = (w, h), ppu
+        self.frame_size, self.ppu, self.right = (w, h), ppu, right
 
     # --- rendering ---------------------------------------------------------------------------------
 
@@ -183,6 +208,20 @@ class Renderer:
         self.scene.frame_set(frame)
         px = self._render(os.path.join(self.tmp, f"{tag}_{frame}.png"))
         return np.round(px * 255).astype(np.uint8)
+
+    def normals(self, frame, finished, tag="f"):
+        """Normal map for a finished frame: outline pixels get a flat normal, empty pixels stay clear."""
+        self._set_output("normals")
+        self.scene.frame_set(frame)
+        px = np.round(self._render(os.path.join(self.tmp, f"{tag}_{frame}_n.png")) * 255).astype(np.uint8)
+        self._set_output("color")
+        out = np.zeros_like(px)
+        opaque = finished[..., 3] > 0
+        surface = opaque & (px[..., 3] >= 128)
+        out[surface, :3] = px[surface, :3]
+        out[opaque & ~surface, :3] = (128, 128, 255)
+        out[opaque, 3] = 255
+        return out
 
     def ids(self, frame, tag="f"):
         """(object ids, depth in pixels) for inner outlines; id 0 and depth inf are empty."""
@@ -234,27 +273,28 @@ class Renderer:
         if not curves or "root" not in self.arm.data.bones:
             return lambda f: (0.0, 0.0)
         basis = self.arm.matrix_world.to_3x3() @ self.arm.data.bones["root"].matrix_local.to_3x3()
-        ppu = self.ppu
+        ppu, right = self.ppu, self.right
 
         def offset(f):
             loc = Vector((0, 0, 0))
             for fc in curves:
                 loc[fc.array_index] = fc.evaluate(f)
-            d = basis @ loc
-            return (round(d.x * ppu, 2) + 0.0, round(-d.z * ppu, 2) + 0.0)  # + 0.0 drops -0.0
+            d = basis @ loc  # world motion, projected onto the screen's right and up
+            return (round(d.dot(right) * ppu, 2) + 0.0, round(-d.z * ppu, 2) + 0.0)  # + 0.0 drops -0.0
         return offset
 
-    def animation(self, name, opts, scale=1):
+    def animation(self, name, opts, scale=1, yaw=0):
         """Render every timeline frame of an action, merging held frames.
 
         Returns {"keys": timeline frame of each sprite frame, "frames": finished RGBA arrays,
-        "ticks": frames each is held for, "offsets": root motion in pixels}.
+        "ticks": frames each is held for, "offsets": root motion in pixels, "normals": normal maps
+        (when opts["normals"]) or None}.
         """
         w, h = opts["frame"]
         anchor = opts["anchor"]
         if not isinstance(anchor, str):
             anchor = [a * scale for a in anchor]
-        self.frame_camera(w * scale, h * scale, opts["pixels_per_unit"] * scale, anchor)
+        self.frame_camera(w * scale, h * scale, opts["pixels_per_unit"] * scale, anchor, yaw)
         act = self.use_action(name)
         offset = self.root_motion(act)
         start, end = (int(round(x)) for x in act.frame_range)
@@ -276,7 +316,8 @@ class Renderer:
         for i, f in enumerate(keys):
             ids, depth = self.ids(f, name) if inner else (None, None)
             frames[i] = self.finish(frames[i], opts, ids, depth, scale)
-        return {"keys": keys, "frames": frames, "ticks": ticks, "offsets": offsets}
+        normals = [self.normals(f, frames[i], name) for i, f in enumerate(keys)] if opts.get("normals") else None
+        return {"keys": keys, "frames": frames, "ticks": ticks, "offsets": offsets, "normals": normals}
 
     def stills(self, name, frames, opts, scale=1):
         """Finished frames of an action at the given timeline frames (root motion muted)."""

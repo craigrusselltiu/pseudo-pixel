@@ -24,7 +24,8 @@ python pp.py render  <char_dir> [<name> ...]        # spritesheets + JSON in <ch
 ```
 
 Scripts run inside Blender and can import the helpers: `rig` (skeletons), `build` (parts),
-`anim` (actions). Read the reference before writing a script of that kind:
+`anim` (actions, including `leg_ik` to plant feet) and `library` (parts and actions saved as JSON for
+reuse across characters). Read the reference before writing a script of that kind:
 
 - [references/modelling.md](references/modelling.md): reading the reference, `build.part`, review.
 - [references/rig.md](references/rig.md): bone names, axes, rotation signs.
@@ -92,6 +93,14 @@ Both characters must share bone names. New script:
 add the animation to `character.json`, then preview and adjust keys that depend on proportions
 (lunges, bobs).
 
+### Save to or use the library
+
+A workspace can keep a `library/` folder next to `characters/`. Save with
+`library.save_parts("../../library/parts/<name>.json", [part names])` or
+`library.save_action("../../library/actions/<name>.json", "<action>")`, and load into another character
+with `library.load_parts(path, scale=...)` or `library.load_action(path, "<new name>")`. Parts land
+relative to their bones, so they fit different proportions; preview afterwards.
+
 ### The user edited the .blend and asks to re-render
 
 Render only. Don't run scripts against the .blend.
@@ -107,7 +116,7 @@ Render only. Don't run scripts against the .blend.
     "frame": [48, 48], "pixels_per_unit": 20, "anchor": "bottom-center", "fps": 12,
     "shading_steps": 3, "light": [-1, -1, 1],
     "palette": null, "outline": {"color": "#1a1c2c", "mode": "inner"}, "despeckle": true,
-    "columns": null, "expand_holds": false
+    "columns": null, "expand_holds": false, "normals": false, "views": [0]
   },
   "animations": {
     "idle": {"loop": true},
@@ -117,11 +126,16 @@ Render only. Don't run scripts against the .blend.
 ```
 
 `palette` is a list of hex colours or a `.hex`/`.gpl` file next to `character.json`. `outline.mode`
-is `outer` or `inner` (also between overlapping parts). The README's table lists every key.
+is `outer` or `inner` (also between overlapping parts). `normals: true` adds a normal-map sheet for
+lighting sprites in the engine. `views` renders extra camera angles (degrees around the character:
+0 side, 90 front, 270 back) as `<name>_<angle>` sheets; characters face right, so flip for left. The
+README's table lists every key.
 
 ## Output
 
 `out/<name>.png` is a spritesheet (one row, or `columns` per row). `out/<name>.json` is in Aseprite's
 array format: frame rectangles, per-frame `duration` in ms (held poses become longer frames), a frame
-tag, and `rootMotion` offsets in pixels (y down) when the animation moves the root. Engines' Aseprite
+tag, and `rootMotion` offsets in pixels (y down) when the animation moves the root. With
+`normals`, `out/<name>_n.png` has the same layout (OpenGL convention: x right, y up, z toward the
+viewer) and the JSON names it in `meta.normalMap`. Engines' Aseprite
 importers read it directly.

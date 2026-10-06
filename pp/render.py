@@ -24,17 +24,21 @@ os.makedirs(out_dir, exist_ok=True)
 def write_sheet(name, opts, res):
     w, h = opts["frame"]
     fps = opts["fps"]
-    frames, ticks, offsets = res["frames"], res["ticks"], res["offsets"]
+    frames, ticks, offsets, normals = res["frames"], res["ticks"], res["offsets"], res["normals"]
     clipped = [i for i, px in enumerate(frames) if post.touches_edge(px)]
     if clipped:
         print(f"WARNING {name}: frames {clipped} touch the frame edge; consider a larger frame")
 
     if opts["expand_holds"]:
         rep = lambda xs: [x for x, t in zip(xs, ticks) for _ in range(t)]  # noqa: E731
-        frames, offsets, ticks = rep(frames), rep(offsets), [1] * sum(ticks)
+        frames, offsets = rep(frames), rep(offsets)
+        normals = rep(normals) if normals else None
+        ticks = [1] * sum(ticks)
 
     sheet, pos = post.pack(frames, opts["columns"])
     sprite.save_png(os.path.join(out_dir, name + ".png"), sheet)
+    if normals:
+        sprite.save_png(os.path.join(out_dir, name + "_n.png"), post.pack(normals, opts["columns"])[0])
     has_motion = any(o != (0.0, 0.0) for o in offsets)
     entries = []
     for i, ((x, y), t, (ox, oy)) in enumerate(zip(pos, ticks, offsets)):
@@ -53,6 +57,8 @@ def write_sheet(name, opts, res):
                            "direction": "forward"}],
         },
     }
+    if normals:
+        meta["meta"]["normalMap"] = name + "_n.png"
     with open(os.path.join(out_dir, name + ".json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     print(f"rendered {name}: {len(frames)} frames, ticks {ticks}")
@@ -63,4 +69,7 @@ with tempfile.TemporaryDirectory() as tmp:
     for name in cfg["animations"]:
         if not only or name in only:
             opts = sprite.anim_options(cfg, name)
-            write_sheet(name, opts, r.animation(name, opts))
+            views = opts["views"]
+            for yaw in views:
+                suffix = "" if list(views) == [0] else f"_{yaw}"
+                write_sheet(name + suffix, opts, r.animation(name, opts, yaw=yaw))

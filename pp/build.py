@@ -212,3 +212,56 @@ def recolor(name, hex_color):
 def parts():
     """Names of every part in the scene."""
     return [o.name for o in bpy.context.scene.objects if "pp_part" in o]
+
+
+def smooth_skin(name="skin", names=None, armature=None):
+    """Optional smooth skinning: join copies of the parts into one mesh deformed by the armature with
+    automatic weights, and hide the rigid originals from the render. Joints bend instead of the parts
+    sliding past each other, which helps big characters (64 px and up) more than small ones.
+
+    The originals stay in the .blend for editing: change them with part(), then call smooth_skin()
+    again to rebuild the skin. remove(name) and unhiding the originals undoes it.
+    """
+    arm = rig.armature(armature)
+    srcs = [bpy.data.objects[n] for n in (names or parts())]
+    remove(name)
+    for o in srcs:  # hidden objects are not evaluated, so their modifiers would be skipped
+        o.hide_set(False)
+    pose_position = arm.data.pose_position
+    arm.data.pose_position = "REST"
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    bm = bmesh.new()
+    mats = []
+    for o in srcs:
+        mesh = bpy.data.meshes.new_from_object(o.evaluated_get(depsgraph))  # modifiers (bevels) applied
+        mesh.transform(o.matrix_world)
+        offset = len(mats)
+        for m in mesh.materials:
+            mats.append(m)
+        for poly in mesh.polygons:
+            poly.material_index += offset
+        bm.from_mesh(mesh)
+        bpy.data.meshes.remove(mesh)
+    skin_mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(skin_mesh)
+    bm.free()
+    for m in mats:
+        skin_mesh.materials.append(m)
+    skin = bpy.data.objects.new(name, skin_mesh)
+    bpy.context.scene.collection.objects.link(skin)
+
+    view = bpy.context.view_layer
+    for o in view.objects:
+        o.select_set(False)
+    skin.select_set(True)
+    arm.select_set(True)
+    view.objects.active = arm
+    bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+    for o in srcs:
+        o.hide_render = True
+        o.hide_set(True)
+    skin["pp_skin"] = json.dumps([o.name for o in srcs])
+    arm.data.pose_position = pose_position
+    return skin
