@@ -3,15 +3,16 @@
 Turn a 2D reference image into pixel-art spritesheets, using the Dead Cells workflow:
 reference -> low-detail 3D model -> rigged animation -> low-res toon render -> spritesheet.
 
-Claude Code builds the model, rig and animations in Blender, and you can edit any of them by hand in
-Blender as well.
+An LLM coding agent builds the model, rig and animations in Blender, and you can edit any of them by hand
+in Blender as well. It works with any agent and model that can run shell commands, write Python and read
+images.
 
 **Status:** planning. See [PLAN.md](PLAN.md).
 
 ## Requirements
 
 - Blender 5.2 LTS or newer
-- Claude Code
+- A coding agent with a vision-capable model (Claude Code, Codex, Gemini CLI, OpenCode, etc.)
 
 ## License
 
