@@ -188,8 +188,9 @@ Guilty Gear Xrd likewise uses keys with no in-betweens. So:
   render setting.
 - Looping animations: the last frame must match the first, and it is left out of the sheet.
 - Animate in place. The root stays at the anchor, so sprites never drift by sub-pixel amounts (a source of
-  flicker). Root motion, such as a lunge, is written to the JSON as per-frame offsets for the engine to
-  apply.
+  flicker). Root motion, such as a lunge, is keyed as location on the `root` bone. The renderer mutes
+  those curves and writes the offsets to the JSON instead (`rootMotion: {x, y}` per frame, in pixels
+  from the animation's start, y down) for the engine to apply.
 - Review loop: the agent renders a contact sheet of all frames and the key poses at a larger size, checks
   silhouette readability and timing, and adjusts.
 - The user can edit keyframes directly in Blender's Action editor. `inspect.py` picks up those changes.
@@ -202,27 +203,38 @@ Guilty Gear Xrd likewise uses keys with no in-betweens. So:
   The scale never changes between animations. Fitting each animation to its frame would make the
   character change size from one sheet to the next.
 - **Anchor:** the root bone's ground position maps to a fixed pixel (by default, bottom-center of the
-  frame), so sprites line up in the engine.
-- **Toon shading in Eevee:** Shader to RGB -> constant Color Ramp (2-3 tone steps per material) from one
-  key light whose direction is set in config.
-- **No anti-aliasing:** render straight at the target frame size with a single sample and the smallest
-  filter size. Every pixel is either fully opaque or transparent.
+  frame), so sprites line up in the engine. `anchor` is `bottom-center`, `center`, `bottom-left`, or an
+  `[x, y]` pixel measured from the top-left.
+- **Toon shading in Eevee:** at render time, every material is swapped for an emission shader:
+  half-Lambert N.L against the `light` direction -> constant Color Ramp (`shading_steps` tones) -> times
+  the material's base colour. The .blend keeps ordinary Principled BSDF materials, so it looks normal in
+  Blender and the user edits colours there. This uses no lights and casts no shadows, which keeps the
+  result predictable; Shader to RGB with a sun lamp was the first idea, but its brightness depends on
+  lamp units and cast shadows add noise at 32 px. Shading settings apply to the whole character.
+- **No anti-aliasing:** render straight at the target frame size with a single sample, filter size 0 and
+  dithering off. Alpha is then thresholded, so every pixel is either fully opaque or transparent.
 - **Clipping check:** if any frame has opaque pixels touching the frame edge, the agent reports it and
   suggests a bigger frame for that animation.
 
-### Post-processing (inside Blender's Python, using numpy)
+### Post-processing (`pp/post.py`, numpy only)
+
+Steps run in this order: quantize, despeckle, outline (so despeckle never eats outline pixels).
 
 1. **Palette quantization (optional):** map each pixel to the nearest palette colour in OKLab. Palettes are
    a list of hex colours or a `.hex` / `.gpl` file (the Lospec formats).
 2. **Outline (optional):** 1 px lines in a set colour, using a 4-neighbour check.
    - `outer`: around the alpha edge.
-   - `inner`: also between parts where depth jumps, using the depth and object-index passes from the
-     same render. For example, an arm in front of the torso. At 32 px, this inner line is often what
-     keeps overlapping limbs readable.
-3. **Despeckle (optional):** remove isolated single pixels of a colour. Converting raw 3D to low
-   resolution produces these, and they are a main cause of the flicker Dead Cells' artist said he never
-   solved. This doesn't fix everything, but it is cheap.
-4. **Pack:** frames go left to right in one row by default, or in a grid with `columns` set.
+   - `inner`: also between parts where depth jumps by more than `depth` pixels (default 1), drawn on the
+     farther part. For example, an arm in front of the torso. At 32 px, this inner line is often what
+     keeps overlapping limbs readable. Object index and depth come from a second render of each sprite
+     frame with a material override that writes them to a float EXR (Blender's render passes can't be
+     read back from Python without the compositor).
+3. **Despeckle (optional):** replace pixels whose colour matches none of their 8 neighbours with the
+   most common colour among their 4 neighbours. Converting raw 3D to low resolution produces these, and
+   they are a main cause of the flicker Dead Cells' artist said he never solved. The 8-neighbour check
+   keeps 1 px diagonal lines such as sword blades. This doesn't fix everything, but it is cheap.
+4. **Pack:** frames go left to right in one row by default, or in a grid with `columns` set. With
+   `expand_holds`, held frames are repeated so every frame lasts one tick.
 5. **Metadata:** write a JSON file in Aseprite's array format (frame rects, per-frame duration in ms, tags,
    plus root-motion offsets), so existing importers for Godot, Unity, Phaser and others work with it.
 6. **Normal map sheet (optional, `normals: true`):** Dead Cells exported a normal map with every frame
@@ -230,7 +242,8 @@ Guilty Gear Xrd likewise uses keys with no in-betweens. So:
    little.
 
 All of this runs in Blender's bundled Python with numpy, so **Blender is the only dependency**. There is
-no Pillow and no pip install.
+no Pillow and no pip install. `post.py` doesn't import `bpy`, so its tests run with any Python that has
+numpy: `python -m unittest discover tests`.
 
 ## `character.json`
 
@@ -290,9 +303,10 @@ It finds Blender through `BLENDER` (an env var), then `PATH`, then the default i
 
 ## Milestones
 
-1. **Render pipeline:** a hand-written test character (boxes on a skeleton) with one hand-written action.
+1. **Render pipeline (done):** a hand-written test character (boxes on a skeleton) with one hand-written action.
    Get camera, pixels-per-unit, anchor, toon shading, no-AA, hold merging, quantize, outlines, despeckle,
-   pack and JSON working. This is fully deterministic and can be tested without an LLM.
+   pack and JSON working. This is fully deterministic and can be tested without an LLM. Normal-map sheets
+   moved to milestone 5.
 2. **Rig + animation helpers:** the humanoid template, axis conventions, `anim.py`, `inspect.py`,
    contact-sheet previews. Hand-write idle, walk and attack to validate the helpers.
 3. **Modelling helpers + reference-to-model:** `build.py`, turnaround previews, `references/modelling.md`.
