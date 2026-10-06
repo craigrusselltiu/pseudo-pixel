@@ -151,3 +151,71 @@ def pack(frames, columns=None):
         sheet[y:y + h, x:x + w] = f
         pos.append((x, y))
     return sheet, pos
+
+
+# --- review sheets -------------------------------------------------------------------------------
+
+FONT = {  # 3x5 bitmap glyphs, rows top to bottom
+    "0": "111101101101111", "1": "010110010010111", "2": "111001111100111", "3": "111001111001111",
+    "4": "101101111001001", "5": "111100111001111", "6": "111100111101111", "7": "111001010010010",
+    "8": "111101111101111", "9": "111101111001111", "x": "000101010101000", " ": "000000000000000",
+    "-": "000000111000000",
+}
+
+
+def text(s, color=(255, 255, 255, 255), scale=2):
+    """Render a string of digits, 'x', '-' and spaces as an RGBA image."""
+    glyphs = [np.array([int(c) for c in FONT[ch]], dtype=bool).reshape(5, 3) for ch in s]
+    mask = np.zeros((5, max(1, 4 * len(s) - 1)), dtype=bool)
+    for i, g in enumerate(glyphs):
+        mask[:, 4 * i:4 * i + 3] = g
+    mask = mask.repeat(scale, 0).repeat(scale, 1)
+    out = np.zeros(mask.shape + (4,), dtype=np.uint8)
+    out[mask] = color
+    return out
+
+
+def _paste(dst, src, x, y):
+    """Alpha-over src onto dst at (x, y), clipped to dst."""
+    h, w = src.shape[:2]
+    h, w = min(h, dst.shape[0] - y), min(w, dst.shape[1] - x)
+    if h <= 0 or w <= 0:
+        return
+    s = src[:h, :w]
+    a = s[..., 3:4] > 0
+    dst[y:y + h, x:x + w] = np.where(a, s, dst[y:y + h, x:x + w])
+
+
+def contact_sheet(cells, labels, scale=4, columns=8):
+    """Frames upscaled by `scale` (nearest) on a checkerboard, each with a text label above it."""
+    h, w = cells[0].shape[0] * scale, cells[0].shape[1] * scale
+    pad, lab = 4, 14
+    cols = min(columns, len(cells))
+    rows = -(-len(cells) // cols)
+    sheet = np.zeros((rows * (h + lab + pad) + pad, cols * (w + pad) + pad, 4), dtype=np.uint8)
+    sheet[...] = (40, 40, 48, 255)
+    yy, xx = np.mgrid[0:h, 0:w]
+    checker = np.where((((yy // 8) + (xx // 8)) % 2 == 0)[..., None],
+                       np.array((150, 150, 160, 255), np.uint8), np.array((120, 120, 130, 255), np.uint8))
+    for i, (cell, label) in enumerate(zip(cells, labels)):
+        x = pad + (i % cols) * (w + pad)
+        y = pad + (i // cols) * (h + lab + pad)
+        _paste(sheet, text(label), x, y)
+        bg = checker.copy()
+        _paste(bg, cell.repeat(scale, 0).repeat(scale, 1), 0, 0)
+        sheet[y + lab:y + lab + h, x:x + w] = bg
+    return sheet
+
+
+def stats(frames):
+    """Text checks for a list of frames: colours used and the opaque bounding box in pixels."""
+    colors = set()
+    height = width = 0
+    for f in frames:
+        a = f[..., 3] > 0
+        colors |= {tuple(c) for c in f[a][:, :3].tolist()}
+        if a.any():
+            ys, xs = np.nonzero(a)
+            height = max(height, ys.max() - ys.min() + 1)
+            width = max(width, xs.max() - xs.min() + 1)
+    return {"colors": len(colors), "height": int(height), "width": int(width)}

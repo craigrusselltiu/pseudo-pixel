@@ -43,12 +43,16 @@ pseudo-pixel/                       # this repo
       rig.md                        # bone names, axes, rotation conventions
       animation.md                  # timing, key poses, loop rules, common recipes
   pp/                               # runs inside Blender's bundled Python
-    build.py                        # modelling helpers (parts, bones, materials)
-    anim.py                         # animation helpers (pose, key, loop)
-    inspect.py                      # dump a .blend to JSON so the agent can see its current state
-    render.py                       # render one animation to frames
-    post.py                         # quantize to palette, outline, pack sheet + JSON
-    preview.py                      # turnaround and contact-sheet previews for review
+    rig.py                          # skeletons (humanoid, extras, custom) and the axis convention
+    build.py                        # modelling helpers (parts, materials)
+    anim.py                         # animation helpers (pose, key, loop, mirror, retime)
+    info.py                         # `pp.py inspect`: dump a .blend to JSON (not inspect.py, which
+                                    #   would shadow the standard library module)
+    sprite.py                       # camera, toon materials, frame rendering (shared)
+    render.py                       # `pp.py render`: spritesheets + JSON
+    post.py                         # quantize, despeckle, outline, pack, review-sheet helpers (numpy)
+    preview.py                      # `pp.py preview`: turnaround and contact-sheet previews + checks
+    run.py                          # `pp.py run`: apply a script to the .blend and save
   pp.py                             # thin CLI that finds Blender and runs the scripts above
   examples/
     knight/                         # a sample character, end to end
@@ -102,7 +106,7 @@ rebuilding from them would wipe out the user's manual changes.
 - The agent builds the `.blend` once with a generator script, then saves it.
 - From then on, every change the agent makes is an **incremental** script that opens the `.blend`, edits it,
   and saves it. The agent never regenerates a character from scratch unless the user asks.
-- Before any edit, the agent runs `inspect.py`, which dumps objects, bones, materials, actions and keyframes
+- Before any edit, the agent runs `pp.py inspect`, which dumps objects, bones, materials, actions and keyframes
   to JSON. That way the agent sees the user's manual edits instead of assuming the .blend still matches its
   old scripts.
 - The scripts in `scripts/` are a log for readability and debugging. They are not replayed.
@@ -193,7 +197,7 @@ Guilty Gear Xrd likewise uses keys with no in-betweens. So:
   from the animation's start, y down) for the engine to apply.
 - Review loop: the agent renders a contact sheet of all frames and the key poses at a larger size, checks
   silhouette readability and timing, and adjusts.
-- The user can edit keyframes directly in Blender's Action editor. `inspect.py` picks up those changes.
+- The user can edit keyframes directly in Blender's Action editor. `pp.py inspect` picks up those changes.
 - Impact effects such as smears, sparks and slashes are out of scope. Dead Cells sold impact with VFX and
   hit-freeze in the engine, not in the character sprites.
 
@@ -293,13 +297,17 @@ A thin wrapper so the skill and the user run the same commands:
 
 ```
 python pp.py inspect  characters/knight
-python pp.py preview  characters/knight [--turnaround | --anim attack]
-python pp.py render   characters/knight [--anim attack]
+python pp.py preview  characters/knight [--turnaround] [--anim attack]
+python pp.py render   characters/knight [attack]
 python pp.py run      characters/knight scripts/004_bigger_helmet.py    # apply an edit script and save
 ```
 
 It finds Blender through `BLENDER` (an env var), then `PATH`, then the default install locations, and runs
-`blender -b <file.blend> -P <script> -- <args>`.
+`blender -b <file.blend> -P <script> -- <args>`. It hides Blender's own progress output (`--verbose`
+shows it), and `run` sets the scene frame rate from `character.json` before the script runs.
+
+Pose values in `inspect` output use the same convention as `anim.py`, and each key lists every animated
+bone, so a key can be pasted into an edit script.
 
 ## Milestones
 
@@ -307,8 +315,9 @@ It finds Blender through `BLENDER` (an env var), then `PATH`, then the default i
    Get camera, pixels-per-unit, anchor, toon shading, no-AA, hold merging, quantize, outlines, despeckle,
    pack and JSON working. This is fully deterministic and can be tested without an LLM. Normal-map sheets
    moved to milestone 5.
-2. **Rig + animation helpers:** the humanoid template, axis conventions, `anim.py`, `inspect.py`,
-   contact-sheet previews. Hand-write idle, walk and attack to validate the helpers.
+2. **Rig + animation helpers (done):** the humanoid template, axis conventions, `anim.py`, `pp.py
+   inspect`, contact-sheet previews (and the turnaround preview from milestone 3). Hand-written idle,
+   walk and attack in `examples/humanoid/`.
 3. **Modelling helpers + reference-to-model:** `build.py`, turnaround previews, `references/modelling.md`.
    Test on 3-5 varied references (humanoid, armoured, caped, non-humanoid).
 4. **The skill:** `SKILL.md` that ties the workflows together, including the review loops and the "never

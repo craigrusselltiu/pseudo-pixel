@@ -7,15 +7,31 @@ An LLM coding agent builds the model, rig and animations in Blender, and you can
 in Blender as well. It works with any agent and model that can run shell commands, write Python and read
 images.
 
-**Status:** the render pipeline (milestone 1) works; the agent skill is not written yet. See [PLAN.md](PLAN.md).
+**Status:** the render pipeline, rig and animation helpers work (milestones 1-2); the agent skill is
+not written yet. See [PLAN.md](PLAN.md).
 
 ## Usage (so far)
 
 ```
-python pp.py run    examples/test examples/test/build.py   # build the test character's .blend
-python pp.py render examples/test [animation ...]          # spritesheets + JSON in examples/test/out
-python -m unittest discover tests                          # post-processing tests (numpy only)
+python pp.py run     <character_dir> <script.py>          # apply a script to the .blend and save it
+python pp.py inspect <character_dir>                      # the .blend's objects, bones and keys as JSON
+python pp.py preview <character_dir> [--anim NAME ...]    # contact sheets + checks in previews/
+python pp.py render  <character_dir> [animation ...]      # spritesheets + JSON in out/
+python -m unittest discover tests                         # post-processing tests (numpy only)
 ```
+
+To try the example humanoid (rig, idle, walk and attack written with `pp/rig.py` and `pp/anim.py`):
+
+```
+for s in 001_build 002_idle 003_walk 004_attack; do
+  python pp.py run examples/humanoid examples/humanoid/scripts/$s.py
+done
+python pp.py preview examples/humanoid
+python pp.py render examples/humanoid
+```
+
+Conventions for rigs and animation scripts are in
+[skills/pseudo-pixel/references](skills/pseudo-pixel/references).
 
 Blender is found via the `BLENDER` environment variable, `PATH`, or the default install location.
 
