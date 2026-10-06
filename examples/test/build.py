@@ -31,22 +31,23 @@ for pb in arm.pose.bones:
 
 
 def material(hex_color):
+    """A plain Principled BSDF; render.py reads its base colour and swaps in toon shading."""
     mat = bpy.data.materials.get(hex_color)
     if mat:
         return mat
     mat = bpy.data.materials.new(hex_color)
-    nodes = mat.node_tree.nodes
-    nodes.clear()
-    emit = nodes.new("ShaderNodeEmission")
     srgb = [int(hex_color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
     linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in srgb]
-    emit.inputs["Color"].default_value = linear + [1]
-    mat.node_tree.links.new(emit.outputs[0], nodes.new("ShaderNodeOutputMaterial").inputs["Surface"])
+    mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = linear + [1]
+    mat.diffuse_color = linear + [1]
     return mat
 
 
-def box(name, size, at, bone, color):
-    bpy.ops.mesh.primitive_cube_add(size=1)
+def box(name, size, at, bone, color, shape="cube"):
+    if shape == "sphere":
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.5, segments=12, ring_count=8)
+    else:
+        bpy.ops.mesh.primitive_cube_add(size=1)
     obj = bpy.context.active_object
     obj.name = name
     obj.data.materials.append(material(color))
@@ -59,7 +60,7 @@ def box(name, size, at, bone, color):
 box("leg.L", (0.14, 0.12, 0.5), (0.05, 0.1, 0.25), "root", "#3b3f58")
 box("leg.R", (0.14, 0.12, 0.5), (-0.05, -0.1, 0.25), "root", "#4b5070")
 box("torso", (0.32, 0.36, 0.6), (0, 0, 0.8), "body", "#5a6b8c")
-box("helmet", (0.3, 0.3, 0.3), (0.02, 0, 1.25), "head", "#9aa3ad")
+box("helmet", (0.34, 0.34, 0.34), (0.02, 0, 1.25), "head", "#9aa3ad", shape="sphere")
 box("arm.R", (0.1, 0.1, 0.4), (0, -0.22, 0.8), "arm.R", "#7d8aa8")
 box("sword", (0.06, 0.04, 0.6), (0, -0.26, 0.4), "arm.R", "#d8dee9")
 
@@ -89,6 +90,13 @@ def key(frame, bone, swing=None, bob=None):
         pb.keyframe_insert("location", frame=frame)
 
 
+def lunge(frame, x):
+    """Root motion along +X; the root bone points up, so world X is its local X."""
+    pb = arm.pose.bones["root"]
+    pb.location = (x, 0, 0)
+    pb.keyframe_insert("location", frame=frame)
+
+
 def finish(name):
     act = arm.animation_data.action
     act.name = name
@@ -104,8 +112,10 @@ for f, y in ((0, 0), (4, -0.06), (8, 0)):
     key(f, "body", bob=y)
 finish("idle")
 
-# attack: windup, strike, recover
+# attack: windup, strike with a lunge, recover
 new_action("attack")
 for f, angle in ((0, 0), (2, -60), (5, 100), (9, 30), (11, 0)):
     key(f, "arm.R", swing=angle)
+for f, x in ((0, 0), (5, 0.25), (11, 0.25)):
+    lunge(f, x)
 finish("attack")
