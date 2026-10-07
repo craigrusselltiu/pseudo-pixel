@@ -88,6 +88,22 @@ class PostTest(unittest.TestCase):
         self.assertEqual(sheet[4, 0, 0], 4)
         self.assertEqual(post.pack(frames)[0].shape, (2, 15, 4))
 
+    def test_text(self):
+        t = post.text("1x", scale=1)
+        self.assertEqual(t.shape, (5, 7, 4))
+        self.assertEqual((t[..., 3] > 0)[:, 1].tolist(), [True] * 5)  # the 1's stem
+
+    def test_contact_sheet_layout(self):
+        cells = [img(["r.", ".r"])] * 3
+        sheet = post.contact_sheet(cells, ["0", "1", "2 x3"], scale=4, columns=2)
+        # 2 columns of 8 px cells with 4 px padding; 2 rows of 14 px label + 8 px cell + 4 px padding
+        self.assertEqual(sheet.shape, (2 * (14 + 8 + 4) + 4, 2 * (8 + 4) + 4, 4))
+        self.assertEqual(tuple(sheet[4 + 14, 4]), RED)  # first cell's top-left pixel, upscaled
+
+    def test_stats(self):
+        s = post.stats([img(["r..", "rb.", "..."]), img(["...", "...", "bbb"])])
+        self.assertEqual(s, {"colors": 2, "height": 2, "width": 3})
+
 
 if __name__ == "__main__":
     unittest.main()

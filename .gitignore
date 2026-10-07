@@ -1,4 +1,6 @@
 __pycache__/
 *.blend1
-examples/test/*.blend
-examples/test/out/
+examples/*/*.blend
+examples/*/out/
+!examples/knight/out/
+examples/*/previews/

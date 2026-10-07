@@ -1,0 +1,23 @@
+{
+  "name": "slime",
+  "reference": "reference.png",
+  "rig": {
+    "type": "custom",
+    "bones": {
+      "root": "ground pivot; root motion",
+      "body": "whole blob, from the ground up; scale it to squash and stretch"
+    }
+  },
+  "output": {
+    "frame": [32, 24],
+    "pixels_per_unit": 16,
+    "fps": 12,
+    "shading_steps": 3,
+    "outline": { "color": "#1a1c2c", "mode": "outer" },
+    "despeckle": true
+  },
+  "animations": {
+    "idle": { "loop": true },
+    "hop": { "loop": false, "frame": [40, 40] }
+  }
+}
