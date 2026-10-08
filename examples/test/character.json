@@ -4,7 +4,7 @@
     "frame": [32, 32],
     "pixels_per_unit": 16,
     "fps": 12,
-    "shading_steps": 3,
+    "shading_steps": 4,
     "light": [-1, -1, 1],
     "outline": { "color": "#1a1c2c", "mode": "inner" },
     "despeckle": true

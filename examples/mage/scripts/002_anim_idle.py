@@ -1,9 +1,10 @@
-"""Idle: the reference pose (staff held out in front), with a slow two-pose bob."""
+"""Idle: the staff planted upright at the mage's side, the arm out so it clears the body and face from
+the 45 degree view, with a slow breathing bob and the head and staff hand settling a beat later."""
 from anim import action
 
-HOLD = {"upper_arm.R": (15, 0, 0), "forearm.R": (75, 0, 0), "hand.R": (-90, 0, 0)}
+HOLD = {"upper_arm.R": (-5, 0, 32), "forearm.R": (25, 0, 0), "hand.R": (-15, -10, -30)}  # staff upright
 a = action("idle", loop=True)
 a.key(0, {**HOLD, "hips": {"loc": (0, 0, 0)}, "head": (0, 0, 0)})
-a.key(8, {**HOLD, "forearm.R": (78, 0, 0), "hand.R": (-93, 0, 0),
-          "hips": {"loc": (0, 0, -1 / 16)}, "head": (4, 0, 0)})
-a.end(16)
+a.key(16, {"hips": {"loc": (0, 0, -1 / 28)}})
+a.key(20, {"head": (4, 0, 0), "forearm.R": (28, 0, 0)})
+a.end(32)

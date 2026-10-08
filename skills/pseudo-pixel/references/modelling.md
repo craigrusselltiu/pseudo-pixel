@@ -1,82 +1,128 @@
 # Modelling reference
 
-Turn the reference image into a few dozen low-poly parts, each a flat colour, each parented to one
-bone. Detail that renders smaller than a pixel is wasted, so model for the target resolution, not for
-the reference.
+Build a 3D model that looks like the reference: from the reference's own angle, the model should
+line up with the drawing in silhouette, proportions, features and colours. Use as many parts as that
+takes. Each part has one flat colour and is parented to one bone.
 
 ## 1. Read the reference
 
 Before writing any code, write down:
 
-- **Facing.** Characters face right (+X). If the reference faces left, mirror your measurements.
-- **Ground and top.** The pixel where the feet touch the ground (centre of the stance) and the
-  topmost pixel of the body (the head; decide whether hats, plumes and ears count).
-- **Proportions.** Hip height, head size, shoulder height, arm length, as fractions of the height.
-  Pass them to `rig.humanoid(...)`.
-- **Parts.** Every region of one colour that moves with one bone: helmet, visor, plume, chest, belt,
-  upper arm, forearm, hand, thigh, shin, foot, weapon, shield, cape. Note each part's colour.
-- **Near and far.** The side camera sees the character's right side (.R) up close. A far limb that
-  looks darker in the reference is shaded, not a different colour: give both sides the same colour.
-- **Pose.** References are rarely in the rest pose (standing, arms down). Model parts where they sit in
-  the rest pose, then reproduce the reference pose in the idle animation.
+- **Angle.** Where the camera is relative to the character. Characters face +X, so `yaw` is 0 when
+  the reference shows the character's right side facing screen right, 90 when it faces the camera,
+  180 for its left side facing screen left, 270 from behind. A three-quarter view facing the camera
+  and turned toward screen right is about 60-75; turned toward screen left, about 105-120. Judge
+  `elevation` from how much of the tops of things you see (hat brims, shoulders, feet): 0 at eye
+  level, 10-30 for the usual slightly-from-above game view. Put them in `character.json` as
+  `views: [yaw]` and `elevation`.
+- **Scale.** The pixel under the character's origin (on the ground, between the feet), the y of its
+  highest pixel (decide whether hats, plumes and ears count), and its height in units (about 1.6-2.2
+  for a humanoid). Put them in `character.json` as `reference_scale`.
+- **Proportions.** Hip height, head size, shoulder height and width, arm length, as fractions of the
+  height. Pass them to `rig.humanoid(...)`. Keep the reference's proportions, however stylised.
+- **Parts.** Every region that moves with one bone, and every visible feature on it: hat, brim, band,
+  ears and their inner colour, eyes, brows, muzzle, nose, cheek patches, collar, scarf, lapels, shirt,
+  buttons, badges, belt and buckle, pockets, sleeves, cuffs, gloves, coat tails, trousers, boots,
+  weapons, tails and their stripes. Note each one's colour and where it sits.
+- **Near and far.** A far limb that looks darker in the reference is shaded, not a different colour:
+  give both sides the same colour.
+- **Pose.** References are rarely in the rest pose (standing, arms down). Model parts where they sit
+  in the rest pose, then reproduce the reference pose as the first pose of the idle animation.
 
 ## 2. Measure with `Ref`
 
+`Ref` turns reference pixels into units in the reference's view. With `reference_scale`, `views` and
+`elevation` set in `character.json`, `Ref()` needs no arguments.
+
 ```python
 from build import Ref, mirror, part
-R = Ref(ground=(128, 234), top=14, height=1.6)     # reference pixels -> units
-at, (sx, sz) = R.box(100, 14, 158, 66)             # a rectangle's centre and side-view size
-part("helmet", "box", (sx, 0.4, sz), at, "head", "#9aa6ba", bevel=0.05)
+R = Ref()                                   # or Ref(ground=(630, 1170), top=185, height=2.2, yaw=70)
+at, (w, h) = R.box(510, 185, 790, 345)      # a pixel rectangle: its world centre and on-screen size
+part("crown", "cylinder", (0.55, 0.6, h), at, "head", "#5e3424", taper=0.85)
+nose = R.at(680, 485, depth=0.35)           # the world point drawn at that pixel, 0.35 toward the camera
 ```
 
-`R.pt(x, y)` converts one pixel, `R.len(px)` a length, and `R.points(polygon, at)` turns a
-reference polygon into a `profile` part's points. The reference only shows x and z. Choose depth
-(y) from what the part is: about 0.8 of the width for heads and torsos, the same as the width for
-limbs. Look at the front view in the turnaround to check depths.
+- `R.pt(x, y)` gives screen units (right of and above the ground point), `R.len(px)` a length.
+- `R.at(x, y, depth)` and `R.box(..., depth=)` place a point on the line of sight through that
+  pixel. A picture has no depth, so choose it: about 0 for things on the body's centre line, and
+  toward the camera (positive) for things on the near surface (a nose, a badge, the near arm).
+- Sizes are in world axes (x forward, y left, z up), not screen axes. In a front view the screen
+  width of a part is its y size; in a three-quarter view it mixes x and y. Choose the sizes, then let
+  `--compare` show whether the part covers the right pixels.
+- `R.points(polygon, at)` turns a reference pixel polygon into a `profile` part's points; pass
+  `rotate=R.facing` so the flat shape faces the camera. Profiles are the most exact way to match an
+  outline: coat tails, capes, hair, ears, hat brims, blades.
 
 ## 3. Parts
 
 ```python
-part(name, shape, size, at, bone, color, bevel=0, taper=1, rotate=(0, 0, 0), segments=10, points=None)
+part(name, shape, size, at, bone, color, bevel=0, taper=1, rotate=(0, 0, 0), segments=10, points=None,
+     smooth=0)
 mirror("forearm.L")            # creates forearm.R on the mirrored bone
 ```
 
+**Smooth forms.** `smooth=2` adds a subdivision surface with smooth shading: the shape becomes a
+rounded, organic version of itself, the way 3D game characters are box-modelled. Use it for
+everything soft: coats, sleeves, trousers, boots, hats, fur, tails, bodies. Add a small `bevel`
+(0.03-0.08) to a smoothed box to keep it near its full size; without one it shrinks into a pebble.
+Leave hard props (blades, guns, buckles, badges) unsmoothed. Unsmoothed boxes are what make a model
+look blocky.
+
 | Shape | Use for |
 |---|---|
-| `box` | torsos, limbs, helmets, belts, boots. Add `bevel` (about 0.02-0.05) to soften corners |
-| `sphere` | heads, hands, gems, eyes |
-| `dome` | anything with a flat base: slimes, mushroom caps, round helmets |
-| `cylinder` | staffs, shields (with `rotate=(90, 0, 0)` so the face points at the camera), barrels |
-| `cone` | hats, spikes, horns. `taper` on a box gives a frustum instead |
-| `profile` | flat shapes seen from the side: blades, axes, capes, plumes, ears, tails. `points` are (x, z) in units around `at`, and `size` is the thickness |
+| `box` | torsos, limbs, belts, boots. Add `bevel` (about 0.02-0.05) to soften corners; `taper` for a frustum |
+| `sphere` | heads, hands, muzzles, cheeks, eyes, fluffy volumes (stretch it with a non-uniform size) |
+| `dome` | anything with a flat base: slimes, caps, round helmets, hat crowns |
+| `cylinder` | arms and legs seen end-on, hat brims, barrels, staffs, shields (rotate so the face points at the camera) |
+| `cone` | hats, spikes, horns, scarf points |
+| `profile` | flat shapes traced from the reference: blades, capes, coat tails, plumes, ears, hair, tails. `points` are (x, z) in units around `at`, and `size` is the thickness |
 
-- Build parts in the **rest pose**, along their bones. Sizes are full extents (x forward, y left,
+- **Match, don't simplify.** Build each region from as many parts as its shape needs: a head is a
+  skull plus cheeks plus a muzzle plus ears; a coat is a torso plus lapels plus tails plus sleeves.
+  Use segments 12-16 on round parts that are big on screen.
+- **Model all around.** Build every part in full 3D, not as a cheat for one view: features go where
+  they are on the character (eyes on the front, not both on one side), so any camera angle works.
+- **Markings are parts too.** Stripes, patches, eye markings, buttons and badges are thin parts that
+  sit just outside the surface they are on (stripes on a tail: slightly larger rings around it).
+- **Build parts in the rest pose**, along their bones. Sizes are full extents (x forward, y left,
   z up) and `at` is the centre.
-- **Keep everything over 1.5 px thick** from the side (`1.5 / pixels_per_unit` units). `part()`
-  prints a warning when a part is thinner. Exaggerate swords, staffs, limbs and visors.
-- **Visible from the side means sticking out in y.** A feature on the front of a head (a visor, a
-  nose) only shows from the side if it is deeper than the head, or protrudes forward past it.
-- **Layering in depth.** Parts behind the body (capes, far arms, shields on the far arm) must be
-  shallower than the body or sit at larger y, or they cover the body in the side view.
-- **Model for the camera.** Only the side view is rendered. If the reference draws both eyes on a
-  side view, put both on the near side. Cheats like this are normal in 3D-for-2D pipelines.
+- **Keep everything over 1.5 px thick** in the game view (`1.5 / pixels_per_unit` units). `part()`
+  prints a warning when a part is thinner. Thicken thin things (sword blades, whiskers, straps)
+  rather than drop them.
+- **Layering in depth.** Parts behind the body (capes, tails, far arms) must sit behind it from the
+  game view, or they cover it. Parts on the surface must stick out of it, or they are hidden.
 - **Props on extra bones.** Weapons go on a `weapon` bone that is a child of the hand, so the
   animation can swing the weapon by rotating the hand.
-- **Colours.** Sample flat base colours from the reference. Toon shading adds the light and dark tones,
-  so pick the mid tone, not the highlight or the shadow.
+- **Colours.** Sample flat base colours from the reference. Toon shading adds the light and dark
+  tones, so pick the mid tone, not the highlight or the shadow.
 - Calling `part()` again with the same name replaces that part. Use it in edit scripts
   ("make the helmet bigger"). `recolor(name, hex)` and `remove(name)` also exist.
-
-Typical counts: a humanoid has 15-25 parts. More than about 40 at 48 px is usually wasted.
 
 **Reusing parts.** `library.load_parts("../../library/parts/great_helm.json", scale=0.9)` adds saved
 parts on the bones of the same names, placed relative to each bone, so they fit other proportions.
 Save a character's parts with `library.save_parts(path, [names])`.
 
-**Smooth skinning (optional).** `build.smooth_skin()` joins copies of all parts into one mesh with
-automatic weights, so elbows and knees bend instead of the parts sliding past each other. The rigid
-parts stay in the .blend, hidden: edit them with `part()` and call `smooth_skin()` again. Only worth
-it for large sprites (64 px and up) or soft characters. Rigid parts are the default.
+**Game-ready skins.** Parts are how you build; the finished character should be one sculpted mesh
+per region, not parts glued together. `build.smooth_skin(name, parts, voxel, relax, faces, bones)`
+fuses the listed parts with a voxel remesh (seams blend into one surface, like sculpting them
+together), relaxes and decimates it to a face budget, gives each face the colour of the nearest
+part, and skins it to the armature with automatic weights:
+
+```python
+smooth_skin("torso_skin", ["coat", "collar", "belt", "coat_back"], voxel=0.018, relax=6, faces=4000,
+            bones=["hips", "spine", "chest", "neck"])
+```
+
+- Make one skin per region that moves together: head, hat, torso and coat, each arm, each leg, tail.
+  Never fuse an arm into the body it hangs against: the voxel remesh welds whatever touches.
+- Always pass `bones`, the region's own bones. Automatic weights otherwise let nearby bones pull on
+  the skin (raised arms lifting a coat).
+- `voxel` about 0.015-0.025 units (smaller keeps more detail), `relax` 4-8, `faces` 2000-6000 per
+  region. Parts thinner than about two voxels may break up: leave them out.
+- Leave small and hard details out (eyes, noses, brows, markings, badges, buckles, blades, guns,
+  thin brims and flat cloth): they stay crisp rigid parts on their bones.
+- The parts stay in the .blend, hidden. Edit them with `part()` and call `smooth_skin()` again with
+  the same name to rebuild that skin.
 
 ## 4. Non-humanoids
 
@@ -86,11 +132,54 @@ for. Squash and stretch uses `{"scale": (x, y, z)}` keys on a bone whose head is
 
 ## 5. Review loop
 
-1. `python pp.py preview <character> --turnaround`.
-2. Look at `previews/turnaround.png`: the reference, then the model from the side (0), front (90),
-   other side (180) and back (270), at 4x resolution and at sprite size.
-3. Compare the side view with the reference. Check silhouette and proportions, that every part
-   reads at sprite size, that features are visible, and that nothing pokes through where it
-   shouldn't. Read the printed checks: size in pixels and thin parts.
+1. `python pp.py preview <character> --compare --turnaround`.
+2. Look at `previews/compare.png`: the reference, the model drawn over it, and the two blended, at
+   the reference's scale and angle. Every part should cover the same pixels as in the reference.
+   Note each place where the outline, a proportion, a feature's position or a colour differs.
+3. Look at `previews/turnaround.png`: the game view at 4x and at sprite size, then four sides.
+   Check that every feature still reads at sprite size and that nothing pokes through from the sides.
 4. Fix with a new edit script that calls `part()` for the parts that change, then preview again.
-5. Stop after 3 rounds and report what still differs from the reference.
+5. Stop after 5 rounds and report what still differs from the reference.
+
+## 6. Generated meshes
+
+A mesh from `pp.py generate` is one lumpy surface with its colours projected from the reference. Three
+things keep it clean at sprite size:
+
+- **Flat colours.** Give `model.paint` one colour per material (fur, coat, hat, steel), never a light
+  and a dark version of the same one: the toon shader does the shading, and shaded pairs scatter
+  speckles over every surface. Markings are not shading: a tail's dark rings get their own colour.
+  When the reference is a photo or heavily lit, draw a flat material map over it (each region filled
+  with its palette colour) and paint from that instead.
+- **Paint after rigging, by region.** Projection alone paints a tail behind the legs with the
+  trousers, and side or rear sheets drawn separately land on the wrong parts. `paint(..., bake=False,
+  regions={...}, facing=0.05)` uses the skin weights: each region (a bone name or prefix) lists the
+  colours it may take, and fills the faces no view sees from itself only. Give the head
+  `"views": ["front"]` (the sheet the mesh was generated from; side sheets often draw the ear over
+  the hat), and lower `facing` so grazing faces like a hat's crown still read the front sheet:
+
+  ```python
+  paint(body, B, PALETTE, bake=False, facing=0.05, regions={
+      "tail.": ["fur", "fur_dark", "cream"],
+      "head": {"colors": ["fur", "cream", "black", "hat", "gold"], "views": ["front"]},
+      "upper_arm": ["coat"], "hand": ["paw", "coat"], "foot": ["boots"], ...})
+  ```
+
+  Every pixel around a sample votes for its nearest allowed colour, so the reference's outlines
+  lose. Pass `no_fill=["black", "gold"]` (eyes, nose, badges): unseen faces never take small-feature
+  colours, or one dark outline caught under a brim floods the back of the head. Regions whose bones
+  also carry the edge of a neighbouring part (the chest under the chin) must allow its colours too.
+- **Flatten a shaded reference first.** `model.flatten(image, mask, palette, out, shades={...})`
+  maps every pixel to its palette colour and takes the majority around it, so shading and outlines
+  melt into flat areas; list a material's shading tones that sit nearer another colour under
+  `shades` (a vest's shadow tan, a scarf's dark red). Point the reference's `image` at the result
+  and paint from it. Check the colours with `--compare --turnaround` from every side.
+- **Smooth normals.** `model.smooth_normals(obj)` shades the surface with the normals of a smoothed copy
+  (as Guilty Gear Xrd edits normals for clean cel shading): the toon bands follow the big forms instead
+  of every lump, and stay put as the mesh moves.
+- **Supersampling.** `"supersample": 4` in `output` renders 4x4 samples per pixel and keeps each pixel's
+  dominant colour, holding it from frame to frame until a new colour clearly takes over. Without it,
+  every sub-pixel motion re-samples the surface and a third of the pixels flicker each frame.
+
+Small features (eyes, buttons, badges) are often under a pixel on a generated mesh. Check them in the
+sprite-size preview; if they vanish, make them bigger or a stronger colour.

@@ -1,7 +1,8 @@
 # pseudo-pixel: Plan
 
 Turn a 2D reference image into pixel-art spritesheets using the Dead Cells workflow:
-reference -> low-detail 3D model -> rigged animation -> low-res toon render -> spritesheet.
+reference -> 3D model matching the reference -> rigged 3D animation -> toon render from the reference's
+angle, sampled at the sprite frame rate -> spritesheet.
 
 An LLM coding agent does the modelling, rigging and animation by writing Blender Python. Blender does the
 rendering. The tool is model-agnostic: any agent and model that can run shell commands, write Python and
@@ -19,9 +20,10 @@ keep going.
 ## Non-goals (for now)
 
 - Generating characters from text alone (a reference image is required).
-- Image-to-3D ML models, Mixamo, or other external services. Blender is the only dependency.
-- Multiple facing directions by default. Characters face right; flip them in the game engine. (Extra
-  camera angles are available through `views`, see milestone 5.)
+- Mixamo or other external services. Blender is the only required dependency; the image-to-3D generator
+  (TripoSG, milestone 7) is an optional local setup.
+- Multiple facing directions by default. Sheets are rendered from the reference's angle; flip them in
+  the game engine for the mirrored direction. (Extra camera angles are available through `views`.)
 - Hand weight painting (see "Rig" below). Optional automatic smooth skinning exists (milestone 5).
 - A GUI or a standalone app. The interface is a coding agent plus a skill.
 
@@ -52,9 +54,14 @@ pseudo-pixel/                       # this repo
     sprite.py                       # camera, toon materials, frame rendering (shared)
     render.py                       # `pp.py render`: spritesheets + JSON
     post.py                         # quantize, despeckle, outline, pack, review-sheet helpers (numpy)
-    preview.py                      # `pp.py preview`: turnaround and contact-sheet previews + checks
+    preview.py                      # `pp.py preview`: compare, turnaround and contact-sheet previews + checks
     run.py                          # `pp.py run`: apply a script to the .blend and save
     library.py                      # parts and actions saved as JSON for reuse
+    model.py                        # generated meshes: import, paint, smooth normals, auto weights, Blueprint
+    gen_triposg.py                  # `pp.py generate`: runs TripoSG in its own Python environment
+  viewer/
+    index.html                      # static sprite viewer; `pp.py view` embeds the characters' and examples' sheets
+    view.bat                        # double-click: rebuild the viewer and open it (Windows)
   pp.py                             # thin CLI that finds Blender and runs the scripts above
   examples/
     knight/                         # a sample character, end to end
@@ -69,7 +76,7 @@ my-game/                            # a workspace
         001_build_model.py
         002_anim_idle.py
         003_anim_attack.py
-      previews/                     # review renders (turnarounds, contact sheets)
+      previews/                     # review renders (compare, turnarounds, contact sheets)
       out/
         idle.png  idle.json
         attack.png  attack.json
@@ -116,11 +123,13 @@ rebuilding from them would wipe out the user's manual changes.
 
 ### Model: segmented rigid parts
 
-The agent looks at the reference and builds the character from low-poly parts: boxes, cylinders, spheres
-and simple extrusions, adjusted with bevels and taper. Each part is **parented to a single bone**.
+The agent looks at the reference and builds the character from parts: boxes, cylinders, spheres,
+cones and extrusions traced from the reference, adjusted with bevels and taper. Each part is
+**parented to a single bone**. The goal is fidelity: from the reference's angle, the model should
+line up with the drawing in silhouette, proportions, features and colours, using as many parts as that
+takes (markings such as stripes and patches are parts too).
 
-- This is how many low-res 3D-to-sprite pipelines work. At 32-64 px the joints between parts can't be
-  seen.
+- At sprite sizes the joints between rigid parts can't be seen.
 - It avoids weight painting completely, which is the most error-prone step for an LLM.
 - Users can easily edit it in Blender: select a part, move or scale it, done.
 - Each part gets one flat material whose base colour is sampled from the reference.
@@ -133,20 +142,29 @@ part("helmet", shape="sphere", size=0.22, at=(0, 0, 1.55), bone="head", color="#
 mirror("arm_upper.L")   # creates arm_upper.R on bone upper_arm.R
 ```
 
-**Design for the target resolution.** Dead Cells' characters were about 50 px tall, and its artist
-deliberately kept models simple, since detail that renders to less than a pixel is wasted. `build.py`
-warns when any part is thinner than about 1.5 px at the character's `pixels_per_unit`, because such
-parts flicker in and out between frames. Thin features (sword blades, limbs, antennae) should be
-exaggerated to stay visible.
+**Measuring in the reference's view.** `character.json` records the reference's camera (`views`,
+`elevation`) and scale (`reference_scale`: ground pixel, top pixel, height in units). `build.Ref`
+uses them to turn reference pixels into world positions on the line of sight (the agent picks the
+depth), and to trace outlines into profile parts that face the camera.
+
+**Game-ready skins.** Once the parts match the reference, `build.smooth_skin` fuses each region's soft
+parts (voxel remesh, relax, decimate), transfers each part's colour, and skins the result to the
+region's bones, so the character renders as sculpted meshes rather than glued primitives. Small and
+hard details stay rigid parts.
+
+**Thin parts flicker.** `build.py` warns when any part is thinner than about 1.5 px in the game view at
+the character's `pixels_per_unit`, because such parts flicker in and out between frames. Thin
+features (sword blades, straps, antennae) should be thickened rather than dropped.
 
 **Parts are reusable.** Dead Cells' artist called reusing old model parts for new characters "the single most
 useful little trick in our workflow". A workspace can keep a `library/` folder of saved parts (helmets,
 weapons, monster limbs) and of actions. Actions transfer between characters that share the standard
 skeleton, so "give the soldier the knight's walk" is a copy plus a review.
 
-Review loop: the agent renders a turnaround (front, side, back, plus side view at target resolution), looks
-at the images next to the reference, and adjusts. It stops after a fixed number of rounds (default 3) and
-reports what still differs.
+Review loop: `pp.py preview --compare` renders the model from the reference's angle at the reference's
+own scale and overlays it on the reference, so every difference in outline, proportion, placement and
+colour shows. A turnaround (game view at 4x and at sprite size, then four sides) checks readability and
+the hidden sides. The agent fixes and repeats, up to 5 rounds, then reports what still differs.
 
 ### Rig: a standard skeleton with predictable axes
 
@@ -159,66 +177,76 @@ reports what still differs.
 - Bone rolls are set so the same axis always means the same thing, for example local X = bend forward or
   back. This is documented in `references/rig.md`, so "raise the arm 40 degrees" turns into a predictable
   rotation.
-- FK only for the first version. IK for feet could come later if walk cycles slide too much.
+- Foot IK (`rig.add_foot_ik`): planted foot controls with knee poles, switched on per action when it
+  keys them, so stances keep the feet on the ground while the hips move. Other actions stay FK.
 
-### Animation: pose-to-pose, stepped, one Blender Action per animation
+### Animation: 3D keyframe animation, sampled at the sprite frame rate
 
-Dead Cells animated "like 2D animations, on key frames": first get the animation convincing with the fewest
-frames possible, then add interpolation frames only right before or after a key frame, "never in-between".
-Guilty Gear Xrd likewise uses keys with no in-betweens. So:
+Characters are animated the way a 3D game's characters are: key poses on Blender's timeline with
+smooth (Bezier) interpolation, anticipation, follow-through and overlapping motion. The sprite sheet is
+a sampling of that motion, not a set of hand-picked poses.
 
 - Each animation is a named Action on the armature (`idle`, `walk`, `attack`). Adding a new animation
   means adding a new Action to the existing .blend. The model and rig are untouched.
-- **The Blender timeline is the sprite timeline.** The scene frame rate equals the sprite `fps`, and every
-  key sits on a whole frame, so every key pose is guaranteed to be a sprite frame. Sampling at arbitrary
-  times could skip the strike pose of an attack.
-- **Constant (stepped) interpolation is the default.** Between keys, the pose holds. To add an ease frame
-  next to a key, add another key there, as an animator would.
-- The agent writes key poses with `anim.py` helpers, timed in frames:
+- **The timeline runs at 24 fps** (set when the .blend is created; a rate changed in Blender is kept).
+  Keys sit on whole timeline frames, and lengths are planned in seconds.
+- **Sampling:** the renderer samples each action every `1 / fps` seconds (12 fps by default), so the
+  number of sprite frames is the animation's length times the fps: a 2 s idle is 24 frames. Changing
+  `fps` is a render setting; the animation's speed never changes.
+- The agent writes key poses with `anim.py` helpers:
 
   ```python
-  a = action("attack", loop=False)
-  a.key(0,  {"upper_arm.R": (-30, 0, 0), "chest": (0, 0, 10)})    # windup (held 4 frames)
-  a.key(4,  {"upper_arm.R": (-40, 0, 0), "chest": (0, 0, 14)})    # ease into strike
-  a.key(5,  {"upper_arm.R": (110, 0, 0), "chest": (0, 0, -15)})   # strike
-  a.key(9,  "rest")
-  a.end(11)
+  a = action("attack")
+  a.key(0,  {"upper_arm.R": (20, 0, 0)})                           # ready
+  a.key(6,  {"upper_arm.R": (-40, 0, 0), "chest": (-10, 0, 0)})    # anticipation
+  a.key(9,  {"upper_arm.R": (95, 0, 0), "chest": (15, 0, 0)})      # strike
+  a.key(12, {"upper_arm.R": (110, 0, 0)})                          # follow-through
+  a.key(22, "rest")
+  a.end(24)                                                        # one second
   ```
 
-- **Holds become frame durations.** The renderer renders every timeline frame and merges consecutive
-  identical images into one sprite frame with a longer duration. The sheet only contains distinct poses,
-  and the JSON carries per-frame durations. For engines that need uniform timing, `expand_holds: true`
-  repeats held frames instead.
-- **Changing fps re-times existing actions.** Keys are scaled by the ratio and snapped to whole frames,
-  then the agent reviews the result. Because this can change timing, it is a deliberate edit, not a silent
-  render setting.
-- Looping animations: the last frame must match the first, and it is left out of the sheet.
+- **Uniform frames:** every sample is a frame with duration `1000 / fps` ms. `merge_holds: true` merges
+  identical consecutive frames into one longer frame for engines that read per-frame durations.
+- **Speed changes** are `anim.retime(factor, [names])`, which stretches the keys.
+- Looping animations: the last frame repeats the first and is left out of the sheet, and the curves
+  are cyclic so the motion flows through the loop point.
 - Animate in place. The root stays at the anchor, so sprites never drift by sub-pixel amounts (a source of
   flicker). Root motion, such as a lunge, is keyed as location on the `root` bone. The renderer mutes
   those curves and writes the offsets to the JSON instead (`rootMotion: {x, y}` per frame, in pixels
   from the animation's start, y down) for the engine to apply.
-- Review loop: the agent renders a contact sheet of all frames and the key poses at a larger size, checks
-  silhouette readability and timing, and adjusts.
+- Review loop: the agent renders a contact sheet of every sampled frame, and the same moments at a larger
+  size, checks the motion (arcs, spacing, overlap, loops) and adjusts.
 - The user can edit keyframes directly in Blender's Action editor. `pp.py inspect` picks up those changes.
 - Impact effects such as smears, sparks and slashes are out of scope. Dead Cells sold impact with VFX and
   hit-freeze in the engine, not in the character sprites.
 
 ### Rendering: small, crisp, consistent
 
-- **Orthographic camera, side view**, at a fixed **pixels-per-unit** stored in `character.json`.
+- **Orthographic camera at the reference's angle** (`views` and `elevation`), at a fixed
+  **pixels-per-unit** stored in `character.json`. The light turns with the camera, so every angle is lit
+  from the same screen direction.
   The scale never changes between animations. Fitting each animation to its frame would make the
   character change size from one sheet to the next.
 - **Anchor:** the root bone's ground position maps to a fixed pixel (by default, bottom-center of the
   frame), so sprites line up in the engine. `anchor` is `bottom-center`, `center`, `bottom-left`, or an
   `[x, y]` pixel measured from the top-left.
 - **Toon shading in Eevee:** at render time, every material is swapped for an emission shader:
-  half-Lambert N.L against the `light` direction -> constant Color Ramp (`shading_steps` tones) -> times
-  the material's base colour. The .blend keeps ordinary Principled BSDF materials, so it looks normal in
+  half-Lambert N.L against the `light` direction, plus an ordered (4x4 Bayer) dither offset computed
+  from the screen pixel (`dither`) -> constant Color Ramp of `shading_steps` tones of the material's
+  base colour, hue-shifted cool in shadow and warm in light (`hue_shift`). The dither lives in the
+  shader, so the pattern is fixed to screen pixels and stays stable from frame to frame. The .blend keeps ordinary Principled BSDF materials, so it looks normal in
   Blender and the user edits colours there. This uses no lights and casts no shadows, which keeps the
   result predictable; Shader to RGB with a sun lamp was the first idea, but its brightness depends on
   lamp units and cast shadows add noise at 32 px. Shading settings apply to the whole character.
 - **No anti-aliasing:** render straight at the target frame size with a single sample, filter size 0 and
   dithering off. Alpha is then thresholded, so every pixel is either fully opaque or transparent.
+- **Supersampling (optional, `supersample: n`):** render n x n samples per pixel and reduce them without
+  blending: each pixel takes its dominant colour (the idea of K-Centroid downscaling) and is opaque when
+  half its samples are. Animations add hysteresis: a pixel keeps last frame's colour while that colour
+  still covers a quarter of its samples, so sub-pixel motion and lumpy surfaces stop flickering pixels
+  back and forth, while real motion still moves them (loops get a warm-up lap so this carries across the
+  loop point). The dither pattern stays on the final pixel grid. On a generated mesh this halves the
+  pixels that change between frames of a breathing idle.
 - **Clipping check:** if any frame has opaque pixels touching the frame edge, the agent reports it and
   suggests a bigger frame for that animation.
 
@@ -240,7 +268,7 @@ Steps run in this order: quantize, despeckle, outline (so despeckle never eats o
    they are a main cause of the flicker Dead Cells' artist said he never solved. The 8-neighbour check
    keeps 1 px diagonal lines such as sword blades. This doesn't fix everything, but it is cheap.
 4. **Pack:** frames go left to right in one row by default, or in a grid with `columns` set. With
-   `expand_holds`, held frames are repeated so every frame lasts one tick.
+   `merge_holds`, identical consecutive frames become one frame with a longer duration.
 5. **Metadata:** write a JSON file in Aseprite's array format (frame rects, per-frame duration in ms, tags,
    plus root-motion offsets), so existing importers for Godot, Unity, Phaser and others work with it.
 6. **Normal map sheet (optional, `normals: true`):** Dead Cells exported a normal map with every frame
@@ -257,39 +285,45 @@ numpy: `python -m unittest discover tests`.
 {
   "name": "knight",
   "reference": "reference.png",
+  "reference_scale": { "ground": [128, 234], "top": 14, "height": 1.6 },
   "rig": "humanoid",
   "output": {
-    "frame": [32, 32],
-    "pixels_per_unit": 16,
+    "frame": [64, 64],
+    "pixels_per_unit": 34,
+    "views": [0],
+    "elevation": 0,
     "anchor": "bottom-center",
     "fps": 12,
     "palette": "palettes/endesga-32.hex",
-    "shading_steps": 3,
+    "shading_steps": 4,
+    "dither": 0.35,
+    "hue_shift": 0.5,
     "light": [-1, -1, 1],
     "outline": { "color": "#1a1c2c", "mode": "inner" },
     "despeckle": true,
-    "expand_holds": false,
+    "merge_holds": false,
     "normals": false
   },
   "animations": {
     "idle":   { "loop": true },
-    "attack": { "loop": false, "frame": [48, 32] }
+    "attack": { "loop": false, "frame": [96, 64] }
   }
 }
 ```
 
-Per-animation keys override `output`. Changing any setting except `fps` is a render-only change: rendering
-again is cheap and never touches the .blend. Changing `fps` re-times the actions (see Animation).
+Per-animation keys override `output`. Changing any setting is a render-only change: rendering again is
+cheap and never touches the .blend.
 
 ## Workflows (what the skill handles)
 
 | User says | Agent does |
 |---|---|
-| "Make a character from `ref.png` with idle and attack, 32x32 at 12 fps" | Create `characters/<name>/`, write `character.json`, build model + rig, review loop, author each action, review loop, render sheets |
+| "Make a character from `ref.png` with idle and attack" | Create `characters/<name>/`, write `character.json`, build model + rig, review loop, author each action, review loop, render sheets |
 | "Add a walk animation to the knight" | `inspect` -> new `walk` action on the existing rig -> review -> render `walk` only |
 | "Make the knight's helmet bigger" / "the attack needs more windup" | `inspect` -> incremental edit script -> review -> re-render affected sheets |
-| "Render everything at 64x64 with the Sweetie 16 palette" | Edit `character.json` -> re-render (no .blend changes) |
-| "Change the knight to 8 fps" | Re-time every action, review contact sheets, re-render |
+| "Render everything at 96x96 with the Sweetie 16 palette" | Edit `character.json` -> re-render (no .blend changes) |
+| "Change the knight to 8 fps" | Edit `character.json` -> re-render (the motion is sampled less often) |
+| "Make the attack faster" | `anim.retime(0.75, ["attack"])` -> review -> re-render |
 | "Give the soldier the knight's walk" | Copy the action (same skeleton), review, render |
 | User edited the .blend by hand, then "re-render" | Render only. The agent does not touch the .blend |
 
@@ -299,9 +333,11 @@ A thin wrapper so the skill and the user run the same commands:
 
 ```
 python pp.py inspect  characters/knight
-python pp.py preview  characters/knight [--turnaround] [--anim attack]
+python pp.py preview  characters/knight [--compare] [--turnaround] [--anim attack]
 python pp.py render   characters/knight [attack]
 python pp.py run      characters/knight scripts/004_bigger_helmet.py    # apply an edit script and save
+python pp.py view                                                        # play every sheet in the viewer
+python pp.py generate characters/knight art/knight_cutout.png           # optional: a mesh from one image
 ```
 
 It finds Blender through `BLENDER` (an env var), then `PATH`, then the default install locations, and runs
@@ -337,7 +373,6 @@ bone, so a key can be pasted into an edit script.
    - **Parts and actions library:** `pp/library.py` saves parts (relative to their bones) and actions
      (in the `anim.py` convention) as JSON, so they can be read, diffed and reused across characters.
    - **More facing directions:** `views: [0, 90, ...]` renders extra camera angles as separate sheets.
-     Left-facing sprites are still a flip in the engine.
    - **IK:** `anim.leg_ik` solves the two-bone leg analytically and returns ordinary FK keys, so feet
      can be planted without IK constraints, and `inspect` and hand edits keep working on plain
      rotations.
@@ -345,6 +380,23 @@ bone, so a key can be pasted into an edit script.
      parts stay as the editable source.
    - **Packaging:** a Claude Code plugin and marketplace (`.claude-plugin/`), a Gemini CLI extension
      (`gemini-extension.json`), and `AGENTS.md` for everything else.
+6. **Fidelity and 3D animation (done):**
+   - Sheets are rendered from the reference's angle (`views`, `elevation`), and `build.Ref` measures
+     in that view.
+   - Modelling aims to match the reference, checked with `pp.py preview --compare`.
+   - Actions are smooth 3D animation on a 24 fps timeline, sampled at the sprite fps. Default frame
+     64x64.
+   - A static viewer (`pp.py view`, from `viewer/index.html`) finds every sheet in `characters/` and
+     `examples/` and plays them with speed, zoom, stepping and root motion.
+
+7. **Generated meshes and clarity (done):**
+   - `pp.py generate` runs TripoSG on one image; `model.py` imports, paints (flat colours, or a flat
+     material map for photo references), smooths the shading normals and auto-weights the mesh (through
+     a watertight 10x copy, where bone heat weighting otherwise fails).
+   - `supersample` renders n x n samples per pixel and keeps each pixel's dominant colour, with
+     frame-to-frame hysteresis, so pixels stop flickering as the model moves.
+   - `anim.aim` points a bone's prop (a blade, a barrel) in a world direction, for weapon poses.
+   - Animation guidance for clarity: calm idles, few strong eased poses, motion in whole pixels.
 
 ## Research notes
 
@@ -367,6 +419,10 @@ What the plan takes from existing 3D-to-pixel pipelines:
   - Constant colour ramps for toon steps.
   - Pixel stability only holds under orthographic projection with grid-snapped movement.
   - "A lot of the work in 3D pixel art is getting 3D effects to look 2D."
+- **K-Centroid downscaling** ([Astropulse](https://astropulse.itch.io/k-centroid)): pick each low-res
+  pixel's dominant colour instead of blending or point sampling; the idea behind `supersample`.
+- **Guilty Gear Xrd's normals:** hand-edited vertex normals give clean cel-shading bands; `smooth_normals`
+  does the automatic version (normals from a smoothed copy).
 - **Saint11** ([3D as reference](https://saint11.art/blog/3d-ref/)): raw 3D downscaled to pixel art looks
   "horrible" without further work. This is why outlines, palette mapping and despeckle are part of the
   pipeline rather than extras. Hand cleanup in Aseprite stays an option for hero frames.

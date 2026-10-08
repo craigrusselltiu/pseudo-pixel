@@ -25,5 +25,8 @@ part("shin.L", "box", (0.13, 0.12, 0.29), (0, ly, 0.21), "shin.L", ARMOUR)
 part("foot.L", "box", (0.22, 0.12, 0.1), (0.05, ly, 0.05), "foot.L", DARK)
 for name in ("upper_arm.L", "forearm.L", "hand.L", "thigh.L", "shin.L", "foot.L"):
     mirror(name)
-part("blade", "box", (0.5, 0.03, 0.1), (0.35, -0.23, 0.32), "weapon", STEEL)
-part("guard", "box", (0.1, 0.03, 0.2), (0.08, -0.23, 0.32), "weapon", DARK)
+part("blade", "box", (0.5, 0.07, 0.1), (0.35, -0.23, 0.32), "weapon", STEEL)
+part("guard", "box", (0.1, 0.07, 0.2), (0.08, -0.23, 0.32), "weapon", DARK)
+
+# Foot IK: planted feet for the idle (actions that key foot_ik bones); walk and attack stay FK
+rig.add_foot_ik(arm)

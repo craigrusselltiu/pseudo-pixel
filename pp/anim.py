@@ -1,10 +1,15 @@
-"""Pose-to-pose animation helpers. One Blender Action per animation, keyed on whole frames.
+"""Animation helpers: one Blender Action per animation, animated as for a 3D game.
+
+Keys sit on whole frames of the .blend's timeline (24 fps unless changed in Blender) and are smoothly
+interpolated (Bezier) by default. The renderer samples the finished motion at the sprite fps, so the
+animation's length in seconds sets how many sprite frames it gets.
 
     a = action("attack")
-    a.key(0, {"upper_arm.R": (-30, 0, 0), "chest": (0, 0, 10)})   # windup
-    a.key(5, {"upper_arm.R": (110, 0, 0), "chest": (0, 0, -15)})  # strike
-    a.key(9, "rest")
-    a.end(11)
+    a.key(0, {"upper_arm.R": (-30, 0, 0), "chest": (0, 0, 10)})    # ready
+    a.key(8, {"upper_arm.R": (-45, 0, 0), "chest": (0, 0, 14)})    # anticipation
+    a.key(11, {"upper_arm.R": (110, 0, 0), "chest": (0, 0, -15)})  # strike
+    a.key(20, "rest")
+    a.end(24)                                                     # one second at 24 fps
 
 Pose values follow the rig convention in rig.py: (x, y, z) Euler degrees, or a dict with any of
 "rot", "loc" and "scale".
@@ -49,7 +54,7 @@ def mirrored(pose):
 
 
 class Action:
-    def __init__(self, name, loop=False, interpolation="CONSTANT", armature=None):
+    def __init__(self, name, loop=False, interpolation="BEZIER", armature=None):
         self.name, self.loop, self.interpolation = name, loop, interpolation
         self.arm = rig.armature(armature)
         self.keys = {}  # frame -> {bone: channels}
@@ -113,7 +118,17 @@ class Action:
                 if name in self.scale_bones:
                     pb.scale = scale
                     pb.keyframe_insert("scale", frame=f, group=name)
+        for side in ("L", "R"):  # foot IK (rig.add_foot_ik) is on for a leg when its foot_ik bone is keyed
+            shin, foot = self.arm.pose.bones.get(f"shin.{side}"), self.arm.pose.bones.get(f"foot.{side}")
+            cons = [c for pb in (shin, foot) if pb for c in pb.constraints if c.name in ("IK", "Copy Rotation")]
+            for c in cons:
+                c.influence = 1.0 if f"foot_ik.{side}" in bones else 0.0
+                c.keyframe_insert("influence", frame=first)
         set_interpolation(act, self.interpolation)
+        if self.loop:  # cyclic curves get smooth handles across the loop point
+            for fc in fcurves(act):
+                fc.modifiers.new("CYCLES")
+                fc.update()
         for pb in self.arm.pose.bones:  # leave the armature in its rest pose
             pb.rotation_euler = (0, 0, 0)
             pb.location = (0, 0, 0)
@@ -121,8 +136,55 @@ class Action:
         return act
 
 
-def action(name, loop=False, interpolation="CONSTANT", armature=None):
-    """Start (or replace) the action `name`. interpolation: CONSTANT (stepped), LINEAR or BEZIER."""
+def aim(pose, bone, direction, axis, up=None, armature=None):
+    """The rotation of `bone` (convention degrees, for a key) that, with the rest of `pose` applied,
+    turns `axis` to point along `direction`. Both are world directions: `axis` as it points in the rest
+    pose, for example a blade or barrel on the bone. With `up` = (axis2, direction2), it then also turns
+    the prop about `direction` so axis2 comes as close to direction2 as it can (keeps a gun upright).
+
+        GRIP = {"upper_arm.R": (60, 0, -10), "forearm.R": (30, 0, 0)}
+        a.key(8, {**GRIP, "hand.R": aim(GRIP, "hand.R", (1, -0.2, -0.6), axis=(0, 0, -1))})
+    """
+    from mathutils import Vector
+    arm = armature or rig.armature()
+    ad = arm.animation_data
+    act = ad.action if ad else None
+    if ad:
+        ad.action = None  # or evaluating the scene would pose the armature from the action
+    for pb in arm.pose.bones:
+        ch = _channels(pose.get(pb.name, "rest"))
+        euler, loc, _ = rig.to_pose(pb.bone, ch.get("rot", (0, 0, 0)), ch.get("loc", (0, 0, 0)))
+        pb.rotation_euler, pb.location = euler, loc
+    bpy.context.view_layer.update()
+    pb = arm.pose.bones[bone]
+    rest = arm.matrix_world.to_3x3() @ pb.bone.matrix_local.to_3x3()
+    now = arm.matrix_world.to_3x3() @ pb.matrix.to_3x3()
+    turn = now @ rest.inverted()  # rest pose -> current, in world space
+    a = turn @ Vector(axis).normalized()
+    d = Vector(direction).normalized()
+    delta = a.rotation_difference(d)
+    if up:
+        a2 = delta @ (turn @ Vector(up[0]))
+        want = Vector(up[1])
+        p, q = a2 - d * a2.dot(d), want - d * want.dot(d)
+        if p.length > 1e-6 and q.length > 1e-6:
+            delta = p.rotation_difference(q) @ delta
+    world = delta.to_matrix() @ now
+    m = (arm.matrix_world.to_3x3().inverted() @ world).to_4x4()
+    m.translation = pb.matrix.translation
+    pb.matrix = m
+    bpy.context.view_layer.update()
+    rot, _, _ = rig.from_pose(pb.bone, pb.rotation_euler, pb.location)
+    for p in arm.pose.bones:
+        p.rotation_euler, p.location = (0, 0, 0), (0, 0, 0)
+    if ad:
+        ad.action = act
+    return tuple(round(v, 2) for v in rot)
+
+
+def action(name, loop=False, interpolation="BEZIER", armature=None):
+    """Start (or replace) the action `name`. interpolation: BEZIER (smooth, the default), LINEAR or
+    CONSTANT (stepped: each pose holds until the next key)."""
     return Action(name, loop, interpolation, armature)
 
 
@@ -139,11 +201,12 @@ def set_interpolation(act, mode):
             kp.interpolation = mode
 
 
-def retime(old_fps, new_fps, actions=None):
-    """Scale every key (and frame range) by new/old and snap to whole frames. When two keys land on the
-    same frame, the later one wins. Review the contact sheets afterwards: holds can change length."""
-    ratio = new_fps / old_fps
-    for act in actions or list(bpy.data.actions):
+def retime(factor, actions=None):
+    """Stretch the timing of actions (names; default all) by `factor`: 2 plays half as fast, 0.5 twice
+    as fast. Keys snap to whole frames; when two land on the same frame, the later one wins."""
+    ratio = factor
+    acts = [bpy.data.actions[n] for n in actions] if actions else list(bpy.data.actions)
+    for act in acts:
         for fc in fcurves(act):
             pts = {}
             for kp in fc.keyframe_points:
@@ -154,7 +217,6 @@ def retime(old_fps, new_fps, actions=None):
                 kp.interpolation = interp
         if act.use_frame_range:
             act.frame_start, act.frame_end = round(act.frame_start * ratio), round(act.frame_end * ratio)
-    bpy.context.scene.render.fps = new_fps
 
 
 def import_action(blend_path, name, new_name=None):
@@ -235,7 +297,7 @@ def load(name, data, armature=None):
 def leg_ik(side, ankle, hips=(0, 0, 0), toe=0.0, armature=None):
     """Pose values that put the ankle of leg `side` ("L" or "R") at `ankle` = (x, z) in units.
 
-    Solves the thigh and shin swing in the side view (knee bending forward) and keeps the foot level,
+    Solves the thigh and shin swing in the character's x-z plane (knee bending forward) and keeps the foot level,
     tilted by `toe` degrees (positive: toe down). `hips` is the hips location keyed in the same pose;
     the hips must not be rotated. Use it to plant feet in walks and crouches:
         a.key(0, {"hips": {"loc": (0, 0, -0.05)}, **leg_ik("L", (0.25, 0.06), hips=(0, 0, -0.05))})

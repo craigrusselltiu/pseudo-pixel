@@ -104,6 +104,26 @@ class PostTest(unittest.TestCase):
         s = post.stats([img(["r..", "rb.", "..."]), img(["...", "...", "bbb"])])
         self.assertEqual(s, {"colors": 2, "height": 2, "width": 3})
 
+    def test_downsample_mode_and_coverage(self):
+        a = img(["rrb.", "rb..", "....", "...."])  # left block: 3 red, 1 blue; right: 1 blue, 3 clear
+        self.assertEqual(chars(post.downsample(a, 2)), ["r.", ".."])
+
+    def test_downsample_hysteresis(self):
+        prev = img(["b"])
+        a = img(["rr", "rb"])  # blue still covers a quarter: it stays blue
+        self.assertEqual(chars(post.downsample(a, 2, prev)), ["b"])
+        a = img(["rr", "rr"])  # swept off: it changes
+        self.assertEqual(chars(post.downsample(a, 2, prev)), ["r"])
+        a = img(["b.", ".."])  # a quarter covered: stays opaque after an opaque frame, not after a clear one
+        self.assertEqual(chars(post.downsample(a, 2, prev)), ["b"])
+        self.assertEqual(chars(post.downsample(a, 2, img(["."]))), ["."])
+
+    def test_downsample_ids(self):
+        ids = np.array([[1, 2], [2, 0]])
+        depth = np.array([[5.0, 3.0], [4.0, np.inf]])
+        i, d = post.downsample_ids(ids, depth, 2)
+        self.assertEqual((i.tolist(), d.tolist()), ([[2]], [[3.0]]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,6 +50,65 @@ def oklab(rgb):
                                     [-0.0040720468, 0.4505937099, -0.8086757660]])
 
 
+def _blocks(a, s):
+    """(h*s, w*s, ...) -> (h, w, s*s, ...): each output pixel's s x s samples."""
+    h, w = a.shape[0] // s, a.shape[1] // s
+    b = a.reshape(h, s, w, s, *a.shape[2:]).swapaxes(1, 2)
+    return b.reshape(h, w, s * s, *a.shape[2:])
+
+
+def _mode(keys, valid):
+    """Index of the most common valid key in each block (keys, valid: (h, w, n))."""
+    counts = (keys[..., :, None] == keys[..., None, :]).sum(-1)
+    return np.where(valid, counts, 0).argmax(-1)
+
+
+def _key(rgb):
+    return (rgb[..., 0].astype(np.int32) << 16) | (rgb[..., 1].astype(np.int32) << 8) | rgb[..., 2]
+
+
+def downsample(img, s, prev=None, keep=0.25):
+    """Supersampled RGBA uint8 (h*s, w*s, 4) -> (h, w, 4). A pixel is opaque when at least half of its
+    s x s samples are, and takes their most common colour, so sub-pixel motion only changes a pixel
+    when most of it changes.
+
+    prev (the previous animation frame, downsampled) adds hysteresis: a pixel keeps its previous colour
+    while that colour still covers `keep` of its samples, and its previous coverage while the share of
+    covered samples stays within keep..1-keep. Noise then can't flip pixels back and forth from frame
+    to frame, while real motion, which sweeps a colour off its pixels, still moves them."""
+    if s == 1:
+        return img
+    b = _blocks(img, s)
+    valid = b[..., 3] >= 128
+    keys = _key(b)
+    out = np.take_along_axis(b, _mode(keys, valid)[..., None, None], axis=2)[:, :, 0].copy()
+    cover = valid.mean(-1)
+    opaque = cover >= 0.5
+    if prev is not None:
+        was = prev[..., 3] > 0
+        opaque = np.where(was, cover >= keep, cover > 1 - keep)
+        share = ((keys == _key(prev)[..., None]) & valid).mean(-1)
+        stay = was & (share >= keep)
+        out[stay, :3] = prev[stay, :3]
+    out[..., 3] = np.where(opaque, 255, 0)
+    out[~opaque, :3] = 0
+    return out
+
+
+def downsample_ids(ids, depth, s, opaque=None):
+    """Supersampled (object ids, depth) -> the most common id of each pixel's hit samples and its
+    nearest depth; misses are id 0, depth inf. A pixel is hit where `opaque` (the downsampled colour
+    frame's coverage) says so, or else where half its samples are."""
+    if s == 1:
+        return ids, depth
+    bi, bd = _blocks(ids, s), _blocks(depth, s)
+    valid = bi > 0
+    pick = np.take_along_axis(bi, _mode(bi, valid)[..., None], axis=2)[..., 0]
+    hit = (valid.mean(-1) >= 0.5) if opaque is None else opaque & valid.any(-1)
+    d = np.where(bi == pick[..., None], bd, np.inf).min(-1)
+    return np.where(hit, pick, 0).astype(np.int32), np.where(hit, d, np.inf)
+
+
 def binarize_alpha(img):
     img = img.copy()
     opaque = img[..., 3] >= 128

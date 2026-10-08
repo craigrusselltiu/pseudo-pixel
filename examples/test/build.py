@@ -101,21 +101,18 @@ def finish(name):
     act = arm.animation_data.action
     act.name = name
     act.use_fake_user = True
-    for fc in act.layers[0].strips[0].channelbag(act.slots[0]).fcurves:
-        for kp in fc.keyframe_points:
-            kp.interpolation = "CONSTANT"
 
 
-# idle: loop, 2 poses held 4 frames each (frame 8 repeats frame 0 and is dropped)
+# idle: loop, a bob over 16 timeline frames (frame 16 repeats frame 0 and is dropped)
 new_action("idle")
-for f, y in ((0, 0), (4, -0.06), (8, 0)):
+for f, y in ((0, 0), (8, -0.06), (16, 0)):
     key(f, "body", bob=y)
 finish("idle")
 
 # attack: windup, strike with a lunge, recover
 new_action("attack")
-for f, angle in ((0, 0), (2, -60), (5, 100), (9, 30), (11, 0)):
+for f, angle in ((0, 0), (4, -60), (10, 100), (18, 30), (22, 0)):
     key(f, "arm.R", swing=angle)
-for f, x in ((0, 0), (5, 0.25), (11, 0.25)):
+for f, x in ((0, 0), (10, 0.25), (22, 0.25)):
     lunge(f, x)
 finish("attack")

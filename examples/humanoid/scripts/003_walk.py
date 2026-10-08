@@ -1,4 +1,5 @@
-"""Walk: four key poses (contact, down, passing, up), then the same four mirrored. 2 frames each."""
+"""Walk: four key poses (contact, down, passing, up), then the same four mirrored, 4 timeline
+frames apart (a 0.67 s cycle at 24 fps)."""
 from anim import action, mirrored
 
 STEP = 1 / 16  # one pixel at 16 pixels per unit
@@ -29,5 +30,5 @@ POSES = [
 
 a = action("walk", loop=True)
 for i, pose in enumerate(POSES + [mirrored(p) for p in POSES]):
-    a.key(2 * i, pose)
-a.end(16)
+    a.key(4 * i, pose)
+a.end(32)

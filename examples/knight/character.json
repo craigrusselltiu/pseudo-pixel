@@ -10,7 +10,7 @@
     "pixels_per_unit": 20,
     "anchor": "bottom-center",
     "fps": 12,
-    "shading_steps": 3,
+    "shading_steps": 4,
     "light": [
       -1,
       -1,

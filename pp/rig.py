@@ -103,6 +103,42 @@ def humanoid(height=1.6, head=0.22, legs=0.45, arms=0.4, shoulders=0.12, hips=0.
     return custom(bones, name)
 
 
+def add_foot_ik(arm=None):
+    """Foot IK, as in a 3D game rig: a `foot_ik.L/R` control bone at each ankle (a child of root, so it
+    stays planted when the hips move) and a `knee_ik.L/R` pole in front of each knee (a child of its
+    foot control). The shin gets an IK constraint and the foot copies the control's rotation.
+
+    Actions that key a foot_ik bone use IK for that leg; others keep plain FK (anim.Action keys the
+    constraint influence either way). Straight legs get a slight forward knee bend in the rest pose,
+    which the IK solver needs to know which way to fold."""
+    arm = arm or armature()
+    b = arm.data.bones
+    bones = {}
+    for s in ("L", "R"):
+        thigh, shin, foot = b[f"thigh.{s}"], b[f"shin.{s}"], b[f"foot.{s}"]
+        hip, knee, ankle = thigh.head_local.copy(), shin.head_local.copy(), foot.head_local.copy()
+        if abs(knee.x - (hip.x + ankle.x) / 2) < 0.005:
+            knee.x += 0.025 * (hip.z - ankle.z)
+            bones[f"thigh.{s}"] = (hip, knee, thigh.parent.name)
+            bones[f"shin.{s}"] = (knee, ankle, f"thigh.{s}")
+        bones[f"foot_ik.{s}"] = (ankle, foot.tail_local.copy(), "root")
+        bones[f"knee_ik.{s}"] = (knee + Vector((0.6, 0, 0)), knee + Vector((0.7, 0, 0)), f"foot_ik.{s}")
+    add_bones(arm, bones)
+    for s in ("L", "R"):
+        for n in (f"foot_ik.{s}", f"knee_ik.{s}"):  # controls, not deforming: no skin weights
+            arm.data.bones[n].use_deform = False
+        shin, foot = arm.pose.bones[f"shin.{s}"], arm.pose.bones[f"foot.{s}"]
+        for pb in (shin, foot):
+            for c in [c for c in pb.constraints if c.name in ("IK", "Copy Rotation")]:
+                pb.constraints.remove(c)
+        ik = shin.constraints.new("IK")
+        ik.target, ik.subtarget, ik.pole_target, ik.pole_subtarget = arm, f"foot_ik.{s}", arm, f"knee_ik.{s}"
+        ik.chain_count, ik.pole_angle = 2, math.radians(90)
+        rot = foot.constraints.new("COPY_ROTATION")
+        rot.target, rot.subtarget = arm, f"foot_ik.{s}"
+    return arm
+
+
 def is_right(bone_name):
     return bone_name.endswith((".R", "_R", ".r", "_r"))
 
@@ -114,6 +150,20 @@ def mirror_name(bone_name):
         if bone_name.endswith(b):
             return bone_name[:-2] + a
     return bone_name
+
+
+def view_axes(yaw=0.0, elevation=0.0):
+    """World directions of the camera's screen right, screen up and toward-the-camera for a view.
+
+    yaw (degrees) turns the camera around the character: 0 sees its right side (it faces screen right),
+    90 its front, 180 its left side (it faces screen left), 270 its back. elevation (degrees) raises the
+    camera to look down on the character.
+    """
+    t, e = math.radians(yaw), math.radians(elevation)
+    right = Vector((math.cos(t), math.sin(t), 0))
+    up = Vector((-math.sin(t) * math.sin(e), math.cos(t) * math.sin(e), math.cos(e)))
+    toward = Vector((math.sin(t) * math.cos(e), -math.cos(t) * math.cos(e), math.sin(e)))
+    return right, up, toward
 
 
 def _sides(bone_name):

@@ -60,7 +60,7 @@ def describe_bones(arm):
 def main():
     scene = bpy.context.scene
     arms = [o for o in scene.objects if o.type == "ARMATURE"]
-    out = {"file": bpy.data.filepath, "fps": scene.render.fps, "objects": describe_objects()}
+    out = {"file": bpy.data.filepath, "timeline_fps": scene.render.fps / scene.render.fps_base, "objects": describe_objects()}
     if arms:
         out["bones"] = describe_bones(arms[0])
         out["actions"] = {a.name: anim.describe(a, arms[0]) for a in bpy.data.actions}

@@ -1,4 +1,5 @@
-"""Walk: contact, down, passing, up, then mirrored; 2 frames each. The sword arm stays in guard."""
+"""Walk: contact, down, passing, up, then mirrored, 4 timeline frames apart (0.67 s at 24 fps).
+The sword arm stays in guard."""
 from anim import action, mirrored
 
 PX = 1 / 20
@@ -22,5 +23,5 @@ for half in (0, 1):
         pose.update({"upper_arm.L": (s, 0, 0), "forearm.L": (12, 0, 0),
                      "upper_arm.R": (14 - s / 2, 0, 0), "forearm.R": (76, 0, 0), "hand.R": (-78, 0, 0),
                      "chest": (5, 0, 0)})
-        a.key(8 * half + 2 * i, pose)
-a.end(16)
+        a.key(16 * half + 2 * i, pose)
+a.end(32)

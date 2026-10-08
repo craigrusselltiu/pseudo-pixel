@@ -9,15 +9,33 @@
     }
   },
   "output": {
-    "frame": [32, 24],
-    "pixels_per_unit": 16,
+    "frame": [
+      64,
+      64
+    ],
+    "pixels_per_unit": 36,
     "fps": 12,
-    "shading_steps": 3,
-    "outline": { "color": "#1a1c2c", "mode": "outer" },
-    "despeckle": true
+    "shading_steps": 4,
+    "outline": {
+      "color": "#1a1c2c",
+      "mode": "outer"
+    },
+    "despeckle": true,
+    "anchor": [
+      32,
+      50
+    ],
+    "views": [
+      135
+    ],
+    "elevation": 30
   },
   "animations": {
-    "idle": { "loop": true },
-    "hop": { "loop": false, "frame": [40, 40] }
+    "idle": {
+      "loop": true
+    },
+    "hop": {
+      "loop": false
+    }
   }
 }

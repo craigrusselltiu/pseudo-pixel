@@ -66,7 +66,8 @@ def load_parts(path, names=None, scale=1.0, rename=None, armature=None):
         size = p["size"][1] * scale if p["shape"] == "profile" else [s * scale for s in p["size"]]
         points = [[x * scale, z * scale] for x, z in p["points"]] if p.get("points") else None
         made.append(build.part(rename.get(name, name), p["shape"], size, at, p["bone"], p["color"],
-                               p["bevel"] * scale, p["taper"], p["rotate"], points=points))
+                               p["bevel"] * scale, p["taper"], p["rotate"], p.get("segments", 10), points,
+                               p.get("smooth", 0)))
     return made
 
 

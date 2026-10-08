@@ -5,12 +5,15 @@ Build skeletons with `pp/rig.py` so the axis convention below always holds.
 
 ## Space
 
-- The character faces **+X**. Its left is **+Y** (away from the camera), up is **+Z**.
-- The side camera looks along +Y, so +X is screen right and the character's **right side (.R) is the
-  near side**. Put the weapon hand on .R so it stays in front.
+- The character faces **+X**. Its left is **+Y**, up is **+Z**. Always build and animate in these
+  axes, whatever the camera angle.
+- The camera is set by `views` and `elevation` in `character.json` (see `rig.view_axes`). At yaw 0 it
+  looks along +Y: +X is screen right and the right side (.R) is nearest. At 90 it looks at the
+  character's front (along -X), with its right side on screen left. Between 0 and 180 the .R side is
+  the nearer one, so a weapon hand on .R stays in front.
 - The `root` bone sits at the origin on the ground. The origin maps to the frame's anchor pixel.
-- Units: `pixels_per_unit` in `character.json` converts to pixels. At 16 px per unit, one pixel is
-  0.0625 units.
+- Units: `pixels_per_unit` in `character.json` converts to pixels. At 32 px per unit, one pixel is
+  0.03125 units.
 
 ## Standard humanoid
 
@@ -45,9 +48,9 @@ the same thing:
 
 | Axis | Meaning | Positive |
 |---|---|---|
-| X | swing in the side view (the one you see) | the bone's tip moves **forward** (+X). Horizontal bones (feet, tails): the tip moves **down** |
-| Y | twist along the bone | rarely needed at low resolution |
-| Z | sideways swing, toward or away from the camera | .L/.R bones: tip moves **outward**, away from the body. Centre bones: toward the character's right |
+| X | swing forward and back (what a side view shows) | the bone's tip moves **forward** (+X). Horizontal bones (feet, tails): the tip moves **down** |
+| Y | twist along the bone: turns a head or torso | upright bones turn toward the character's **left** (+Y) |
+| Z | sideways swing (what a front view shows) | .L/.R bones: tip moves **outward**, away from the body. Centre bones: toward the character's right |
 
 On .R bones Y and Z are mirrored, so the same numbers mean the same motion on both sides, and
 `anim.mirrored(pose)` can swap sides without changing values.
@@ -65,7 +68,8 @@ Common motions:
 | Point the toes (heel up) | `foot: (+angle, 0, 0)` |
 | Lean forward / back | `chest` or `spine: (+/-angle, 0, 0)` |
 | Nod down | `head: (+angle, 0, 0)` |
-| Arm out to the side (seen as shorter from the side) | `upper_arm: (0, 0, +angle)` |
+| Arm out to the side | `upper_arm: (0, 0, +angle)` |
+| Turn the head or torso toward its left | `head` or `chest: (0, +angle, 0)` |
 
 Rotations accumulate down the chain: a sword on `weapon` follows hand, forearm and upper arm. To
 point the sword forward while the arm is raised, counter-rotate the hand.
@@ -79,7 +83,21 @@ root motion. Root location is not rendered: it becomes per-frame `rootMotion` of
 `{"scale": (x, y, z)}` scales a bone (and its children) along the world axes. Use it for squash and
 stretch on bones whose head sits where the squash should pivot, such as a slime's body on the ground.
 
-## FK only
+## Foot IK
 
-There is no IK. Feet can slide during walks; keep stride poses consistent and check the contact
-sheet.
+`rig.add_foot_ik()` gives a humanoid game-rig legs: a `foot_ik.L/R` control at each ankle (a child of
+`root`, so it stays planted when the hips move) and a `knee_ik.L/R` pole in front of each knee (a
+child of its foot control). The shins solve IK to the controls and the feet copy their rotation.
+
+- An action that keys a `foot_ik` bone uses IK for that leg; thigh and shin rotations are then
+  ignored. Actions that don't stay plain FK, so walk cycles keyed with thigh rotations still work.
+- Key the controls like any bone, in world-aligned units: `"foot_ik.L": {"loc": (0.1, 0.05, 0),
+  "rot": (0, 0, 10)}` puts the left foot 0.1 forward and 0.05 outward, toes turned 10 degrees out.
+  `rot` X lifts the heel (toe down, with a little `loc` z); Z turns the toes out.
+- Then move the body freely: hips location and rotation (bounce, sway, crouch, recoil) bend the knees
+  and keep the feet on the ground.
+- Call it right after `rig.humanoid(...)`. It gives straight legs a slight forward knee bend in the
+  rest pose, which the solver needs.
+
+`anim.leg_ik(...)` (animation.md) is the FK alternative: it computes plain leg rotations that put an
+ankle where you want it.

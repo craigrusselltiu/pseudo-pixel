@@ -3,14 +3,30 @@
   "reference": "reference.png",
   "rig": "humanoid",
   "output": {
-    "frame": [48, 48],
-    "pixels_per_unit": 16,
+    "frame": [
+      64,
+      64
+    ],
+    "pixels_per_unit": 28,
     "fps": 12,
-    "shading_steps": 3,
-    "outline": { "color": "#1a1c2c", "mode": "inner" },
-    "despeckle": true
+    "shading_steps": 4,
+    "outline": {
+      "color": "#1a1c2c",
+      "mode": "inner"
+    },
+    "despeckle": true,
+    "anchor": [
+      32,
+      50
+    ],
+    "views": [
+      45
+    ],
+    "elevation": 45
   },
   "animations": {
-    "idle": { "loop": true }
+    "idle": {
+      "loop": true
+    }
   }
 }

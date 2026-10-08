@@ -4,3 +4,5 @@ examples/*/*.blend
 examples/*/out/
 !examples/knight/out/
 examples/*/previews/
+characters/
+library/

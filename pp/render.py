@@ -1,7 +1,8 @@
 """Run inside Blender: render each animation to a spritesheet PNG + Aseprite-style JSON (pp.py render).
 
-Every timeline frame is rendered; consecutive identical frames are merged into one sprite frame
-with a longer duration (stepped animation holds). Never saves the .blend.
+Each action is sampled at the sprite fps (fps samples per second of animation), from the character's
+view. With merge_holds, consecutive identical frames merge into one sprite frame with a longer
+duration. Never saves the .blend.
 """
 import json
 import os
@@ -29,12 +30,6 @@ def write_sheet(name, opts, res):
     if clipped:
         print(f"WARNING {name}: frames {clipped} touch the frame edge; consider a larger frame")
 
-    if opts["expand_holds"]:
-        rep = lambda xs: [x for x, t in zip(xs, ticks) for _ in range(t)]  # noqa: E731
-        frames, offsets = rep(frames), rep(offsets)
-        normals = rep(normals) if normals else None
-        ticks = [1] * sum(ticks)
-
     sheet, pos = post.pack(frames, opts["columns"])
     sprite.save_png(os.path.join(out_dir, name + ".png"), sheet)
     if normals:
@@ -61,7 +56,8 @@ def write_sheet(name, opts, res):
         meta["meta"]["normalMap"] = name + "_n.png"
     with open(os.path.join(out_dir, name + ".json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
-    print(f"rendered {name}: {len(frames)} frames, ticks {ticks}")
+    held = f", held {ticks}" if any(t > 1 for t in ticks) else ""
+    print(f"rendered {name}: {len(frames)} frames at {fps} fps{held}")
 
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -70,6 +66,6 @@ with tempfile.TemporaryDirectory() as tmp:
         if not only or name in only:
             opts = sprite.anim_options(cfg, name)
             views = opts["views"]
-            for yaw in views:
-                suffix = "" if list(views) == [0] else f"_{yaw}"
+            for yaw, view in zip(views, opts["view_names"]):
+                suffix = "" if len(views) == 1 else f"_{view}"
                 write_sheet(name + suffix, opts, r.animation(name, opts, yaw=yaw))

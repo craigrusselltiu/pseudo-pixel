@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pseudo-pixel viewer</title>
+<style>
+  :root {
+    --bg: #f4f4f6; --panel: #ffffff; --text: #1d1f27; --muted: #6b6f80; --line: #dcdde3;
+    --accent: #3a6df0; --accent-text: #ffffff; --check-a: #e6e6ea; --check-b: #d2d3da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171c; --panel: #1f2027; --text: #e7e8ee; --muted: #9a9db0; --line: #30323d;
+      --accent: #5b86f5; --accent-text: #ffffff; --check-a: #2a2c35; --check-b: #23242c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li button { width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 6px 8px;
+              border-radius: 6px; cursor: pointer; font: inherit; display: flex; justify-content: space-between; }
+  li button:hover { background: var(--bg); }
+  li button.on { background: var(--accent); color: var(--accent-text); }
+  li button small { opacity: .7; }
+  main { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; background: var(--panel);
+         border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .bar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .bar button { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 6px;
+                       padding: 4px 10px; font: inherit; cursor: pointer; }
+  .bar output { color: var(--text); min-width: 3.5em; display: inline-block; }
+  .stage { flex: 1; min-height: 320px; display: grid; place-items: center; overflow: auto; border-radius: 8px;
+           border: 1px solid var(--line); padding: 16px; }
+  .stage.checker { background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 16px 16px; }
+  canvas { image-rendering: pixelated; display: block; }
+  .strip { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .strip canvas { cursor: pointer; }
+  .info { color: var(--muted); font-size: 12px; }
+  .compass { display: grid; grid-template-columns: repeat(3, 40px); gap: 4px; }
+  .compass button { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 6px;
+                    padding: 6px 0; font: inherit; cursor: pointer; }
+  .compass button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .compass button:disabled { visibility: hidden; }
+  .empty { text-align: center; color: var(--muted); padding: 32px; }
+  @media (max-width: 700px) {
+    .app { grid-template-columns: 1fr; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>pseudo-pixel viewer</h1>
+    <h2>Characters</h2>
+    <ul id="chars"></ul>
+    <h2>Animations</h2>
+    <ul id="anims"></ul>
+    <div id="dirs" hidden>
+      <h2>Direction</h2>
+      <div id="compass" class="compass"></div>
+    </div>
+  </aside>
+  <main>
+    <div class="bar">
+      <button id="play" title="Space">Pause</button>
+      <button id="prev" title="Left arrow">Prev</button>
+      <button id="next" title="Right arrow">Next</button>
+      <output id="frame">-</output>
+      <label>Speed <input id="speed" type="range" min="0.1" max="3" step="0.05" value="1"><output id="speedv">1.00x</output></label>
+      <label>Zoom <input id="zoom" type="range" min="1" max="16" step="1" value="6"><output id="zoomv">6x</output></label>
+      <label><input id="loop" type="checkbox" checked> Loop</label>
+      <label><input id="motion" type="checkbox"> Root motion</label>
+      <label>Background <select id="bgsel">
+        <option value="checker">Checker</option><option value="#000000">Black</option>
+        <option value="#ffffff">White</option><option value="#3a8a4a">Green</option>
+      </select></label>
+    </div>
+    <div id="stage" class="stage checker">
+      <div id="empty" class="empty">No sheets loaded. Run <code>python pp.py view</code>: it finds the sheets in
+        <code>characters/*/out</code> and <code>examples/*/out</code> and opens this viewer with them.</div>
+      <canvas id="view" hidden></canvas>
+    </div>
+    <div class="strip"><canvas id="sheet"></canvas></div>
+    <div id="info" class="info"></div>
+  </main>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const chars = {};               // character -> animation -> {img, meta}
+let cur = null, frame = 0, playing = true, last = 0, acc = 0, dir = "S";
+const COMPASS = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
+
+// Sheets of 8-direction characters are named <animation>_<direction> (idle_S, walk_NE, ...).
+function split(name) {
+  const m = name.match(/^(.*)_(N|NE|E|SE|S|SW|W|NW)$/);
+  return m ? { base: m[1], dir: m[2] } : { base: name, dir: null };
+}
+function dirsOf(char, base) {
+  return Object.keys(chars[char]).map(split).filter(p => p.base === base && p.dir).map(p => p.dir);
+}
+
+function addAnim(char, name, meta, src) {
+  const img = new Image();
+  img.src = src;
+  (chars[char] ||= {})[name] = { img, meta };
+  return new Promise(ok => { img.onload = ok; img.onerror = ok; });
+}
+
+function charNames() {  // the workspace's characters first, then the examples
+  return Object.keys(chars).sort((a, b) =>
+    a.startsWith("examples/") - b.startsWith("examples/") || a.localeCompare(b));
+}
+
+function list(el, names, active, pick, badge) {
+  el.innerHTML = "";
+  for (const n of names) {
+    const b = document.createElement("button");
+    b.textContent = n;
+    if (badge) { const s = document.createElement("small"); s.textContent = badge(n); b.append(s); }
+    b.className = n === active ? "on" : "";
+    b.onclick = () => pick(n);
+    const li = document.createElement("li");
+    li.append(b);
+    el.append(li);
+  }
+}
+
+function refresh() {
+  const names = charNames();
+  if (!names.length) return;
+  if (!cur || !chars[cur.char]) select(names[0]);
+  else render();
+}
+
+function select(char, base) {
+  const bases = [...new Set(Object.keys(chars[char]).map(n => split(n).base))].sort();
+  base = base && bases.includes(base) ? base : (bases.includes("idle") ? "idle" : bases[0]);
+  const dirs = dirsOf(char, base);
+  if (dirs.length && !dirs.includes(dir)) dir = dirs.includes("S") ? "S" : dirs[0];
+  const anim = dirs.length ? `${base}_${dir}` : base;
+  cur = { char, anim };
+  frame = 0; acc = 0;
+  $("empty").hidden = true;
+  $("view").hidden = false;
+  render();
+}
+
+function render() {
+  const names = charNames();
+  list($("chars"), names, cur.char, n => select(n), n => Object.keys(chars[n]).length);
+  const a = chars[cur.char], base = split(cur.anim).base;
+  const bases = [...new Set(Object.keys(a).map(n => split(n).base))].sort();
+  const full = b => a[b] || a[`${b}_${dir}`] || a[`${b}_${dirsOf(cur.char, b)[0]}`];
+  list($("anims"), bases, base, n => select(cur.char, n), n => full(n).meta.frames.length);
+  const dirs = dirsOf(cur.char, base);
+  $("dirs").hidden = !dirs.length;
+  $("compass").innerHTML = "";
+  for (const d of COMPASS) {
+    const b = document.createElement("button");
+    b.textContent = d;
+    b.disabled = !dirs.includes(d);
+    b.className = d === dir ? "on" : "";
+    b.onclick = () => { dir = d; const f = frame; select(cur.char, base); frame = Math.min(f, anim().meta.frames.length - 1); draw(); };
+    $("compass").append(b);
+  }
+  draw();
+  drawSheet();
+}
+
+function anim() { return chars[cur.char][cur.anim]; }
+
+function draw() {
+  if (!cur) return;
+  const { img, meta } = anim();
+  const fr = meta.frames[frame];
+  const { x, y, w, h } = fr.frame;
+  const z = +$("zoom").value;
+  const motion = $("motion").checked;
+  const xs = meta.frames.map(f => (f.rootMotion || { x: 0 }).x);
+  const pad = motion ? Math.max(0, ...xs.map(Math.abs)) : 0;
+  const c = $("view");
+  c.width = (w + 2 * pad) * z; c.height = h * z;
+  const g = c.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  const bg = $("bgsel").value;
+  if (bg !== "checker") { g.fillStyle = bg; g.fillRect(0, 0, c.width, c.height); }
+  const rm = motion && fr.rootMotion ? fr.rootMotion : { x: 0, y: 0 };
+  g.drawImage(img, x, y, w, h, (pad + rm.x) * z, rm.y * z, w * z, h * z);
+  $("frame").textContent = `${frame + 1} / ${meta.frames.length}`;
+  const total = meta.frames.reduce((s, f) => s + f.duration, 0);
+  $("info").textContent = `${cur.char} / ${cur.anim}: ${meta.frames.length} frames of ${w}x${h}, ` +
+    `${(total / 1000).toFixed(2)} s, sheet ${meta.meta.size.w}x${meta.meta.size.h}`;
+  highlight();
+}
+
+function drawSheet() {
+  const { img, meta } = anim();
+  const c = $("sheet"), z = Math.max(1, Math.min(4, Math.floor(+$("zoom").value / 2)));
+  c.width = meta.meta.size.w * z; c.height = meta.meta.size.h * z;
+  c.dataset.z = z;
+  highlight();
+}
+
+function highlight() {
+  const c = $("sheet"), z = +c.dataset.z;
+  if (!cur || !z) return;
+  const { img, meta } = anim();
+  const g = c.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, c.width, c.height);
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const { x, y, w, h } = meta.frames[frame].frame;
+  g.strokeStyle = getComputedStyle(document.body).getPropertyValue("--accent");
+  g.lineWidth = 2;
+  g.strokeRect(x * z + 1, y * z + 1, w * z - 2, h * z - 2);
+}
+
+function step(d) {
+  const n = anim().meta.frames.length;
+  frame = $("loop").checked ? (frame + d + n) % n : Math.max(0, Math.min(n - 1, frame + d));
+  draw();
+}
+
+function tick(t) {
+  const dt = last ? t - last : 0;
+  last = t;
+  if (cur && playing) {
+    const frames = anim().meta.frames;
+    acc += dt * +$("speed").value;
+    while (acc >= frames[frame].duration) {
+      acc -= frames[frame].duration;
+      if (frame === frames.length - 1 && !$("loop").checked) { acc = 0; break; }
+      frame = (frame + 1) % frames.length;
+    }
+    draw();
+  }
+  requestAnimationFrame(tick);
+}
+
+function setPlaying(p) { playing = p; $("play").textContent = p ? "Pause" : "Play"; }
+
+$("play").onclick = () => {
+  const n = cur ? anim().meta.frames.length : 0;
+  if (!playing && !$("loop").checked && frame === n - 1) frame = 0;
+  setPlaying(!playing);
+};
+$("prev").onclick = () => { setPlaying(false); step(-1); };
+$("next").onclick = () => { setPlaying(false); step(1); };
+$("speed").oninput = () => { $("speedv").textContent = (+$("speed").value).toFixed(2) + "x"; };
+$("zoom").oninput = () => { $("zoomv").textContent = $("zoom").value + "x"; if (cur) { draw(); drawSheet(); } };
+$("motion").onchange = () => cur && draw();
+$("bgsel").onchange = () => { $("stage").className = "stage" + ($("bgsel").value === "checker" ? " checker" : ""); cur && draw(); };
+$("sheet").onclick = e => {
+  if (!cur) return;
+  const z = +$("sheet").dataset.z, r = $("sheet").getBoundingClientRect();
+  const px = (e.clientX - r.left) / z, py = (e.clientY - r.top) / z;
+  const i = anim().meta.frames.findIndex(f => px >= f.frame.x && px < f.frame.x + f.frame.w &&
+                                             py >= f.frame.y && py < f.frame.y + f.frame.h);
+  if (i >= 0) { setPlaying(false); frame = i; draw(); }
+};
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "checkbox" && e.target.type !== "range") return;
+  if (e.key === " ") { e.preventDefault(); $("play").click(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); $("prev").click(); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); $("next").click(); }
+  else if (e.key === "+" || e.key === "=") { $("zoom").value = +$("zoom").value + 1; $("zoom").oninput(); }
+  else if (e.key === "-") { $("zoom").value = +$("zoom").value - 1; $("zoom").oninput(); }
+});
+// Data embedded by `pp.py view`: {character: {animation: {image: data URL, meta: sheet JSON}}}.
+// Example characters are named examples/<name>.
+if (window.PP_DATA) {
+  Promise.all(Object.entries(window.PP_DATA).flatMap(([c, anims]) =>
+    Object.entries(anims).map(([a, d]) => addAnim(c, a, d.meta, d.image)))).then(refresh);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

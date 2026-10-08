@@ -66,3 +66,6 @@ part("blade", "profile", 0.03, (0.36, wy, wz), "weapon", BLADE, points=blade)
 at, (sx, sz) = R.box(60, 70, 116, 150)
 part("shield", "cylinder", (sx, sz, 0.06), (at[0], b["forearm.L"].head_local.y + 0.09, at[2]), "forearm.L",
      GOLD, rotate=(90, 0, 0), segments=12)
+
+# Foot IK: planted feet for the idle (actions that key foot_ik bones); walk and attack stay FK
+rig.add_foot_ik(arm)
