@@ -3,6 +3,20 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.5.3 - 2026-10-10
+
+### Added
+
+- The skill tells the agent to use a connected Blender MCP server to look at and try things in the live
+  Blender, with every change still made by a numbered script and `pp.py run`.
+
+### Changed
+
+- `model.lowpoly` keeps colour borders: vertices where two colours meet collapse last (`borders`, default
+  0.3), so polygons follow the borders and small features keep their own polygons. On a test mesh with
+  small spots, a band and a two-tone split, the low-poly model's colour match went from 95% to 99.9% of
+  the surface at the same triangle count, and the spots survived (they vanished before).
+
 ## v0.5.2 - 2026-10-10
 
 ### Fixed

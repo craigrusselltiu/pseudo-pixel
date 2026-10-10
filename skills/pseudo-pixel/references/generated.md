@@ -178,7 +178,9 @@ lowpoly("body")                                        # tubes={"tail": ["tail.1
 
 The generated mesh becomes the guide (hidden as `body_hi`): a copy is smoothed and reduced to about 1400
 triangles, every triangle takes the guide's majority colour and is flat shaded, and the weights come
-from the guide. With a head bone, the budget is split so the face gets the most
+from the guide. Colour borders are kept: the reduction collapses vertices where two colours meet last,
+so borders stay straight runs of edges and small features keep their own polygons; that is why the
+colouring comes first. With a head bone, the budget is split so the face gets the most
 (`budget={"face": 450, "head": 300, "body": 650}`); without one it is all `body`. Raise it for a busy
 subject, lower it for a simple one. `tubes` rebuilds long round parts (tails, tentacles, trunks, hoses)
 as 8-sided tubes along their bones, with a ring of edges on every colour boundary.

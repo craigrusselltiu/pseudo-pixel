@@ -44,6 +44,21 @@ props, low poly), `rig` (skeletons), `anim` (actions, `leg_ik`, `aim`), `build` 
   from parts.
 - [references/render.md](references/render.md): every `character.json` render setting.
 
+### Live Blender (Blender MCP)
+
+If a Blender MCP server is connected (a tool that runs Python in the user's open Blender and shows its
+viewport), use it to look and to try things: open the character's `.blend` in it
+(`bpy.ops.wm.open_mainfile(filepath=...)`), look at the model from any angle, check a weight by posing a
+bone, measure a part, or try a colour rule or a pose before writing it into a script. It is for looking
+and trying only:
+
+- Every change still goes through a numbered script and `pp.py run`, so the `.blend` and the scripts
+  stay the record of what was done. Never save from the live Blender.
+- `pp.py run` saves the file on disk: open it again in the live Blender afterwards, or you are looking
+  at the old version.
+- Previews and renders still come from `pp.py preview` and `pp.py render`: they use the sprite camera
+  and settings; the viewport doesn't.
+
 ## Rules
 
 1. **Characters live in `characters/<name>/`** in the workspace (the current project). Everything for

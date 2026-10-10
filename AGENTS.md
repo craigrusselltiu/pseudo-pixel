@@ -18,4 +18,4 @@ spritesheets with Blender.
   - The tool must work for any character, not one: keep helpers general and measure from the mesh and
     the reference instead of hard-coding numbers.
   - Keep `SKILL.md` and the references agent-neutral: plain shell commands, no agent-specific tool
-    names.
+    names (Blender MCP is described by what it does, as optional).

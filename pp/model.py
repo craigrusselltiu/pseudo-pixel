@@ -1044,14 +1044,17 @@ def _tube(name, guide, arm, bones, sides=8, slices=40, max_band=0.2):
     return tube, replaced
 
 
-def lowpoly(name="body", budget=None, tubes=None, smooth=6):
+def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
     """Turn the rigged, painted generated mesh `name` into a PS1-style low-poly model, as PS1 artists built
     low-poly models over high-poly sculpts. The generated mesh is the guide: a copy is smoothed (so the
     reduction makes broad planes, not crumpled ones) and reduced by edge collapse to a triangle budget per
     zone, spent where it shows: budget {"face": n, "head": n, "body": n}, default 450, 300, 650 (Crash
     Bandicoot had about 500-700 triangles, Spyro about 410). The head is everything above the neck (or
     head) bone's head, the face its front; a rig without a head bone (a vehicle, a blob) is one zone with
-    the whole budget. No textures: every triangle takes one colour, the majority of the guide's
+    the whole budget. Vertices where two of the guide's colours meet collapse last (their weight in the
+    collapse is `borders`; 1 ignores colour), so the polygons follow the colour borders, as PS1 modellers
+    laid edges along them: borders stay where they are and small features (eyes, lights, badges) keep
+    their own polygons instead of turning into stray triangles. No textures: every triangle takes one colour, the majority of the guide's
     paint under it, and is flat shaded, so the facets read at sprite size. Weights come from the guide, so
     the rig and any actions work unchanged.
 
@@ -1115,8 +1118,13 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6):
     lp.vertex_groups.new(name="pp_reduce")
     for z in budget:
         vg = lp.vertex_groups["pp_reduce"]  # looked up again: applying a modifier invalidates the old one
+        colours = [set() for _ in lp.data.vertices]  # vertices where two colours meet collapse last
+        for p in lp.data.polygons:
+            for i in p.vertices:
+                colours[i].add(p.material_index)
         for v in lp.data.vertices:
-            vg.add([v.index], 1.0 if zone(v.co) == z else 0.0, "REPLACE")
+            w = 0.0 if zone(v.co) != z else borders if len(colours[v.index]) > 1 else 1.0
+            vg.add([v.index], w, "REPLACE")
         mod = lp.modifiers.new("reduce", "DECIMATE")
         mod.decimate_type, mod.use_collapse_triangulate = "COLLAPSE", True
         mod.ratio = min(1.0, (tris() - tris(z) + budget[z]) / tris())
