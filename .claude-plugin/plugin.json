@@ -1,7 +1,7 @@
 {
   "name": "pseudo-pixel",
-  "version": "0.4.0",
-  "description": "Turn a character reference image into pixel-art spritesheets with Blender: a 3D model matching the reference, rigged 3D animation, and a toon render from the reference's angle sampled at the sprite frame rate (the Dead Cells workflow).",
+  "version": "0.5.0",
+  "description": "Turn a character reference image into pixel-art spritesheets with Blender: a generated 3D model turned PS1 low-poly, rigged 3D animation, and a dithered toon render from 8 directions.",
   "author": { "name": "Craig Russell Tiu" },
   "repository": "https://github.com/craigrusselltiu/pseudo-pixel",
   "license": "MIT",

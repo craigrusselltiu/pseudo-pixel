@@ -1,5 +1,9 @@
 # Modelling reference
 
+Building a character from parts, for when the generator isn't available (the default pipeline is
+[generated.md](generated.md)), and the details of painting a generated mesh (section 6). Props on a
+generated character are built the same way, with `part` or `model.loft`.
+
 Build a 3D model that looks like the reference: from the reference's own angle, the model should
 line up with the drawing in silhouette, proportions, features and colours. Use as many parts as that
 takes. Each part has one flat colour and is parented to one bone.
@@ -141,45 +145,39 @@ for. Squash and stretch uses `{"scale": (x, y, z)}` keys on a bone whose head is
 4. Fix with a new edit script that calls `part()` for the parts that change, then preview again.
 5. Stop after 5 rounds and report what still differs from the reference.
 
-## 6. Generated meshes
+## 6. Painting a generated mesh
 
-A mesh from `pp.py generate` is one lumpy surface with its colours projected from the reference. Three
-things keep it clean at sprite size:
+The default pipeline ([generated.md](generated.md)) paints the generated mesh before turning it into the
+low-poly model, which takes each triangle's colour from it. A mesh from `pp.py generate` is one lumpy
+surface; these keep its colours clean:
 
 - **Flat colours.** Give `model.paint` one colour per material (fur, coat, hat, steel), never a light
   and a dark version of the same one: the toon shader does the shading, and shaded pairs scatter
   speckles over every surface. Markings are not shading: a tail's dark rings get their own colour.
-  When the reference is a photo or heavily lit, draw a flat material map over it (each region filled
-  with its palette colour) and paint from that instead.
+- **Flatten a shaded reference first.** `model.flatten(image, mask, palette, out, shades={...})`
+  maps every pixel to its palette colour and takes the majority around it, so shading and outlines
+  melt into flat areas; list a material's shading tones that sit nearer another colour under
+  `shades` (a vest's shadow tan, a scarf's dark red). Point the reference's `image` at the result.
 - **Paint after rigging, by region.** Projection alone paints a tail behind the legs with the
-  trousers, and side or rear sheets drawn separately land on the wrong parts. `paint(..., bake=False,
-  regions={...}, facing=0.05)` uses the skin weights: each region (a bone name or prefix) lists the
-  colours it may take, and fills the faces no view sees from itself only. Give the head
-  `"views": ["front"]` (the sheet the mesh was generated from; side sheets often draw the ear over
-  the hat), and lower `facing` so grazing faces like a hat's crown still read the front sheet:
+  trousers. `paint(..., bake=False, regions={...}, facing=0.05)` uses the skin weights: each region (a
+  bone name or prefix) lists the colours it may take, and fills the faces no view sees from itself
+  only. A low `facing` lets grazing faces (a hat's crown) still read the front:
 
   ```python
-  paint(body, B, PALETTE, bake=False, facing=0.05, regions={
+  paint(body, B, PALETTE, bake=False, facing=0.05, no_fill=["black", "gold"], regions={
       "tail.": ["fur", "fur_dark", "cream"],
-      "head": {"colors": ["fur", "cream", "black", "hat", "gold"], "views": ["front"]},
+      "head": ["fur", "cream", "black", "hat", "gold"],
       "upper_arm": ["coat"], "hand": ["paw", "coat"], "foot": ["boots"], ...})
   ```
 
   Every pixel around a sample votes for its nearest allowed colour, so the reference's outlines
-  lose. Pass `no_fill=["black", "gold"]` (eyes, nose, badges): unseen faces never take small-feature
-  colours, or one dark outline caught under a brim floods the back of the head. Regions whose bones
-  also carry the edge of a neighbouring part (the chest under the chin) must allow its colours too.
-- **Flatten a shaded reference first.** `model.flatten(image, mask, palette, out, shades={...})`
-  maps every pixel to its palette colour and takes the majority around it, so shading and outlines
-  melt into flat areas; list a material's shading tones that sit nearer another colour under
-  `shades` (a vest's shadow tan, a scarf's dark red). Point the reference's `image` at the result
-  and paint from it. Check the colours with `--compare --turnaround` from every side.
-- **Smooth normals.** `model.smooth_normals(obj)` shades the surface with the normals of a smoothed copy
-  (as Guilty Gear Xrd edits normals for clean cel shading): the toon bands follow the big forms instead
-  of every lump, and stay put as the mesh moves.
-- **Supersampling.** `"supersample": 4` in `output` renders 4x4 samples per pixel and keeps each pixel's
-  dominant colour, holding it from frame to frame until a new colour clearly takes over. Without it,
-  every sub-pixel motion re-samples the surface and a third of the pixels flicker each frame.
-
-Small features (eyes, buttons, badges) are often under a pixel on a generated mesh. Check them in the
-sprite-size preview; if they vanish, make them bigger or a stronger colour.
+  lose. `no_fill` (eyes, nose, badges): unseen faces never take small-feature colours, or one dark
+  outline caught under a brim floods the back of the head. Regions whose bones also carry the edge
+  of a neighbouring part (the chest under the chin) must allow its colours too.
+- **The unseen sides.** Faces no view sees take the colour that wraps around from the silhouette's
+  edge in their region (`wrap`), then fill from neighbours. Check every side with `--turnaround` and
+  correct with `model.color_faces(obj, rule)` (`rule(center, normal)` returns a colour or None to
+  keep), measuring heights and widths on the mesh. Add a `side` or `rear` sheet to `references` when
+  the user has one (`view` 0 or 270).
+- **Small features** (eyes, buttons, badges) must cover several faces to survive the low-poly
+  reduction. Check them in the sprite-size preview; paint them bigger if they vanish.

@@ -17,6 +17,7 @@ Each key carries over the previous key's pose and changes only the bones it list
 when end() is called.
 """
 import math
+import os
 
 import bpy
 
@@ -222,8 +223,10 @@ def retime(factor, actions=None):
 def import_action(blend_path, name, new_name=None):
     """Copy an action from another character's .blend (same bone names) into this one, replacing any
     action already called `new_name` (default: the same name). Preview it afterwards: keys that depend
-    on proportions, such as lunges and bobs, may need adjusting."""
+    on proportions, such as lunges and bobs, may need adjusting. A relative path is from the character's
+    folder."""
     new_name = new_name or name
+    blend_path = os.path.join(os.environ.get("PP_CHAR_DIR", ""), blend_path)
     with bpy.data.libraries.load(blend_path, link=False) as (src, dst):
         if name not in src.actions:
             raise KeyError(f"no action {name!r} in {blend_path}; actions: {list(src.actions)}")

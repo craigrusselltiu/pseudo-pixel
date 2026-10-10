@@ -3,6 +3,43 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.5.0 - 2026-10-10
+
+The generated PS1 low-poly pipeline is now the default: reference -> TripoSG mesh -> rig -> paint ->
+low-poly model -> animations -> spritesheets.
+
+### Added
+
+- `model.lowpoly()`: turns a rigged, painted generated mesh into a PS1-style low-poly model (about 1400
+  triangles by zone budget, one flat colour per triangle, weights from the generated mesh, which stays
+  hidden as the guide); `tubes` rebuilds tails and other long round parts as striped 8-sided tubes.
+- `model.centre()` and `model.front()`: place joints in the middle of the mesh's cross-section.
+- `model.limb_weights()`: frees limbs a generated mesh fused to the body (arms against a coat) and
+  weights each to its own bones.
+- `model.cut()`: removes a generated prop and closes the hole, for a modelled low-poly one.
+- `model.stripes()`: paints rings around a tail (or any part on a bone chain).
+- `pp.py generate` cuts the character out of the reference itself (RMBG-1.4), measures the silhouette
+  into `character.json` (`reference_scale` and `references`), and defaults to the character's reference.
+- `skills/pseudo-pixel/references/generated.md` (the pipeline step by step) and `render.md` (every render
+  setting).
+
+### Changed
+
+- `pp.py new` writes the PS1 look: 8 directions from 30 degrees above, 5 dithered tones, no outline,
+  supersampled.
+- `model.import_mesh` stands the mesh with the point between its feet on the origin (not its bounding
+  box's centre) and drops loose fragments.
+- `model.paint` gives faces no view sees the colour that wraps around from the silhouette's edge of their
+  region before filling from neighbours.
+- `model.color_faces` keeps a face's colour when its rule returns None.
+- `rig.add_foot_ik` also bends knees fitted behind the hip-to-ankle line forward.
+- `anim.import_action` reads relative paths from the character's folder.
+- The skill and README are rewritten around the pipeline; the README is a short guide to using it.
+
+### Removed
+
+- `PLAN.md`, `examples/test` and the README's knight image.
+
 ## v0.4.0 - 2026-10-09
 
 ### Added

@@ -109,15 +109,16 @@ def add_foot_ik(arm=None):
     foot control). The shin gets an IK constraint and the foot copies the control's rotation.
 
     Actions that key a foot_ik bone use IK for that leg; others keep plain FK (anim.Action keys the
-    constraint influence either way). Straight legs get a slight forward knee bend in the rest pose,
-    which the IK solver needs to know which way to fold."""
+    constraint influence either way). Straight legs, and knees behind the line from hip to ankle (as a
+    skeleton fitted to a generated mesh can have), get a slight forward knee bend in the rest pose, which
+    the IK solver needs to know which way to fold."""
     arm = arm or armature()
     b = arm.data.bones
     bones = {}
     for s in ("L", "R"):
         thigh, shin, foot = b[f"thigh.{s}"], b[f"shin.{s}"], b[f"foot.{s}"]
         hip, knee, ankle = thigh.head_local.copy(), shin.head_local.copy(), foot.head_local.copy()
-        if abs(knee.x - (hip.x + ankle.x) / 2) < 0.005:
+        if knee.x < (hip.x + ankle.x) / 2 + 0.005:  # straight, or bent backwards (it would flip)
             knee.x += 0.025 * (hip.z - ankle.z)
             bones[f"thigh.{s}"] = (hip, knee, thigh.parent.name)
             bones[f"shin.{s}"] = (knee, ankle, f"thigh.{s}")

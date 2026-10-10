@@ -6,7 +6,8 @@
   python pp.py preview <character_dir> [--anim NAME ...] [--turnaround] [--compare]   review images + checks
   python pp.py render  <character_dir> [animation ...]      spritesheets + JSON in out/
   python pp.py view                                         open every sheet in characters/ and examples/ in the viewer
-  python pp.py generate <character_dir> <image> [--seed N]  a 3D model from one image (TripoSG) -> model/generated.glb
+  python pp.py generate <character_dir> [<image>] [--seed N]   cut out the reference (or image) and make a 3D
+                                                            model of it with TripoSG -> model/generated.glb
 
 Add --verbose to see all of Blender's output.
 """
@@ -63,19 +64,19 @@ def blender(script, char_dir, args, verbose=False):
     return proc.wait()
 
 
-DEFAULT_OUTPUT = {
+DEFAULT_OUTPUT = {  # the PS1 look: flat-shaded low-poly facets in 5 dithered tones, no outline, 8 directions
     "frame": [64, 64],
-    "pixels_per_unit": 32,
-    "anchor": "bottom-center",
+    "pixels_per_unit": 17,
+    "anchor": [32, 52],
     "fps": 12,
-    "shading_steps": 4,
-    "dither": 0.35,
-    "hue_shift": 0.5,
-    "light": [-1, -1, 1],
-    "outline": {"color": "#1a1c2c", "mode": "inner"},
-    "despeckle": True,
-    "views": [0],
-    "elevation": 0,
+    "shading_steps": 5,
+    "dither": 0.6,
+    "hue_shift": 0.15,
+    "light": [-1, -0.6, 0.7],
+    "despeckle": False,
+    "views": {"S": 90, "SE": 45, "E": 0, "NE": 315, "N": 270, "NW": 225, "W": 180, "SW": 135},
+    "elevation": 30,
+    "supersample": 4,
 }
 
 
@@ -128,9 +129,13 @@ def view():
 
 
 def generate(char_dir, image, seed):
-    """Run TripoSG on an image (transparent background) in its own Python environment and write
-    <char_dir>/model/generated.glb. PP_GEN_PYTHON and PP_TRIPOSG locate the environment and the repo;
-    the defaults are ../pp-gen/venv and ../pp-gen/TripoSG next to this repository."""
+    """Cut the character out of an image (the character's reference by default) and run TripoSG on it, in
+    its own Python environment: writes <char_dir>/analysis/mask.png and cutout.png, the silhouette's rows
+    into character.json, and <char_dir>/model/generated.glb. PP_GEN_PYTHON and PP_TRIPOSG locate the
+    environment and the repo; the defaults are ../pp-gen/venv and ../pp-gen/TripoSG next to this
+    repository."""
+    with open(os.path.join(char_dir, "character.json"), encoding="utf-8") as f:
+        image = image or os.path.join(char_dir, json.load(f)["reference"])
     gen = os.path.join(os.path.dirname(ROOT), "pp-gen")
     python = os.environ.get("PP_GEN_PYTHON") or next(
         (p for p in (os.path.join(gen, "venv", "Scripts", "python.exe"), os.path.join(gen, "venv", "bin", "python"))
@@ -138,8 +143,7 @@ def generate(char_dir, image, seed):
     if not python:
         sys.exit("TripoSG's Python environment not found; set PP_GEN_PYTHON (see README)")
     env = {**os.environ, "PP_TRIPOSG": os.environ.get("PP_TRIPOSG", os.path.join(gen, "TripoSG"))}
-    out = os.path.join(char_dir, "model", "generated.glb")
-    cmd = [python, os.path.join(ROOT, "pp", "gen_triposg.py"), os.path.abspath(image), out, "--seed", str(seed)]
+    cmd = [python, os.path.join(ROOT, "pp", "gen_triposg.py"), os.path.abspath(image), char_dir, "--seed", str(seed)]
     sys.exit(subprocess.call(cmd, env=env))
 
 
@@ -151,11 +155,12 @@ def main():
         return new_character(os.path.abspath(argv[1]), argv[2])
     if argv == ["view"]:
         return view()
-    if len(argv) >= 3 and argv[0] == "generate":
-        opts = dict(zip(argv[3::2], argv[4::2]))
+    if len(argv) >= 2 and argv[0] == "generate":
+        image = argv[2] if len(argv) % 2 else None
+        opts = dict(zip(argv[2 + bool(image)::2], argv[3 + bool(image)::2]))
         if set(opts) - {"--seed"}:
             sys.exit(__doc__)
-        return generate(os.path.abspath(argv[1]), argv[2], int(opts.get("--seed", 42)))
+        return generate(os.path.abspath(argv[1]), image, int(opts.get("--seed", 42)))
     if len(argv) < 2 or argv[0] not in SCRIPTS:
         sys.exit(__doc__)
     cmd, char_dir, rest = argv[0], os.path.abspath(argv[1]), argv[2:]

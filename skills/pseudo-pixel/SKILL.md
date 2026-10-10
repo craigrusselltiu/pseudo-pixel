@@ -1,141 +1,112 @@
 ---
 name: pseudo-pixel
-description: Turn a 2D character reference image into pixel-art spritesheets (idle, walk, attack, ...) by building a 3D model in Blender that matches the reference as closely as possible, rigging it, animating it as you would for a 3D game, and rendering the motion small with toon shading from the reference's own camera angle, sampled at the sprite frame rate. Use when the user wants sprites or spritesheets of a character, wants to add or change animations of an existing pseudo-pixel character, or wants to change how its sheets are rendered (size, fps, palette, outline, angle).
+description: Turn a 2D character reference image into pixel-art spritesheets (idle, run, attack, ...) by generating a 3D model of it (TripoSG), rigging and painting it, turning it into a PS1-style low-poly model, animating it as for a 3D game, and rendering the motion small from 8 directions with dithered toon shading. Use when the user wants sprites or spritesheets of a character, wants to add or change animations of an existing pseudo-pixel character, or wants to change how its sheets are rendered (size, fps, palette, outline, angle).
 ---
 
 # pseudo-pixel
 
-You build and maintain characters with Blender Python scripts, review the renders by looking at them,
-and render spritesheets. Blender does all the rendering. You do the modelling, rigging and animation.
+You make characters with Blender Python scripts, review the renders by looking at them, and render
+spritesheets. Blender does all the rendering. You do the rigging, painting and animation.
 
-The goal is a sprite that looks like the reference: same angle, same proportions, same features and
-colours. Model as closely to the reference as you can; don't simplify for the sprite size.
+The pipeline: **reference image -> generated 3D mesh (TripoSG) -> rig -> paint -> PS1 low-poly model ->
+animations -> spritesheets.** The sprites should look like the reference: same proportions, features
+and colours, as a faceted low-poly model with flat-coloured triangles (as PS1 characters were).
 
 ## Tools
 
-`pp.py` sits at the root of the pseudo-pixel repository (two folders above this file). Run it with
-any Python 3. It finds Blender through the `BLENDER` environment variable, `PATH`, or the default
-install location (Blender 5.2 or newer).
+`pp.py` sits at the root of the pseudo-pixel repository (two folders above this file). Run it with any
+Python 3. It finds Blender through the `BLENDER` environment variable, `PATH`, or the default install
+location (Blender 5.2 or newer).
 
 ```
-python pp.py new     <char_dir> <reference_image>   # new character folder + character.json
-python pp.py run     <char_dir> <script.py>         # run a script against the .blend, then save it
-python pp.py inspect <char_dir>                     # the .blend's current state as JSON
-python pp.py preview <char_dir> --compare           # the model over the reference, same scale and angle
-python pp.py preview <char_dir> --turnaround        # the model from the game view and 4 sides
-python pp.py preview <char_dir> --anim <name>       # contact sheets for an animation (--view E: from that view)
-python pp.py render  <char_dir> [<name> ...]        # spritesheets + JSON in <char_dir>/out
-python pp.py generate <char_dir> <image>          # a mesh from one image with TripoSG (optional setup)
+python pp.py new      <char_dir> <reference_image>  # new character folder + character.json (PS1 look)
+python pp.py generate <char_dir> [--seed N]         # cut out the reference, measure it, TripoSG -> model/generated.glb
+python pp.py run      <char_dir> <script.py>        # run a script against the .blend, then save it
+python pp.py inspect  <char_dir>                    # the .blend's current state as JSON
+python pp.py preview  <char_dir> --compare          # the model over the reference, same scale and angle
+python pp.py preview  <char_dir> --turnaround       # the model from every view, large and at sprite size
+python pp.py preview  <char_dir> --anim <name>      # contact sheets for an animation (--view E: from that view)
+python pp.py render   <char_dir> [<name> ...]       # spritesheets + JSON in <char_dir>/out
+python pp.py view                                   # play every rendered sheet in the browser
 ```
 
-Scripts run inside Blender and can import the helpers: `rig` (skeletons), `build` (parts and the
-`Ref` measuring helper), `anim` (actions, including `leg_ik` to plant feet) and `library` (parts and
-actions saved as JSON for reuse across characters). Read the reference before writing a script of
-that kind:
+Scripts run inside Blender and can import the helpers: `model` (import, rig fitting, weights, paint,
+props, low poly), `rig` (skeletons), `anim` (actions, `leg_ik`, `aim`), `build` (parts and `Ref`) and
+`library` (parts and actions saved as JSON). Read the reference before writing a script of that kind:
 
-- [references/modelling.md](references/modelling.md): reading the reference, the view, `build.part`, review.
+- [references/generated.md](references/generated.md): the pipeline step by step, with code.
 - [references/rig.md](references/rig.md): bone names, axes, rotation signs.
 - [references/animation.md](references/animation.md): 3D keyframing, timing, loops, review.
+- [references/modelling.md](references/modelling.md): parts, `paint` and `flatten` in detail, building
+  from parts.
+- [references/render.md](references/render.md): every `character.json` render setting.
 
 ## Rules
 
 1. **Characters live in `characters/<name>/`** in the workspace (the current project). Everything for
-   a character, including its sheets in `out/`, stays in that folder. In the pseudo-pixel repository
-   itself `characters/` is git-ignored.
+   a character, including its sheets in `out/`, stays in that folder.
 2. **The .blend is the source of truth.** The user may have edited it by hand. Build it from scratch
    only when creating the character (or when the user asks). Every later change is a new, small
    script that edits the existing .blend.
 3. **Inspect before every edit.** Run `pp.py inspect` and work from what it reports, not from your
    memory of earlier scripts.
-4. **Number your scripts** in `<char_dir>/scripts/`: `001_build_model.py`, `002_anim_idle.py`,
-   `003_bigger_helmet.py`, ... Write each one there, then `pp.py run` it. Never edit a script that
-   has already run: write a new one. The folder is a log of what was done.
-5. **Look at every preview** before moving on, and be strict: compare against the reference, not
-   against "good enough for a sprite". Up to 5 review rounds per step, then stop and tell the user
-   what still differs.
-6. **Render settings live in `character.json`**, not in the .blend. Changing them (size, fps,
-   palette, angle) only needs `pp.py render`.
-7. **Render from the reference's angle.** Set `views` and `elevation` so the game view matches the
-   reference (a reference facing the camera gives sprites facing the camera), unless the user asks
-   for another angle.
-8. Keep every part over 1.5 px thick in the game view, keep keys on whole timeline frames, and never
-   move the root to travel (use root motion).
+4. **Number your scripts** in `<char_dir>/scripts/`: `001_model.py`, `002_rig.py`, `003_paint.py`, ...
+   Write each one there, then `pp.py run` it. Never edit a script that has already run: write a new
+   one. The folder is a log of what was done.
+5. **Look at every preview** before moving on, and be strict: compare against the reference, from every
+   side, at sprite size. Up to 5 review rounds per step, then stop and tell the user what still differs.
+6. **Render settings live in `character.json`**, not in the .blend. Changing them (size, fps, palette,
+   angle) only needs `pp.py render`.
+7. **Stay general.** Measure positions on the mesh and the reference (`model.centre`, `model.front`,
+   `B.k`) rather than guessing numbers, and use the helpers for what they cover. Per-character fixes
+   are small scripts in the character's folder; never change the tool for one character.
+8. Keep every part over 1.5 px thick at sprite size, keys on whole timeline frames, and never move the
+   root to travel (use root motion).
 9. **Human checkpoints.** Until the user says they trust the workflow and can skip them, stop for
-   their approval at three points of every new character or remodel: the generated or built shape,
-   the colours, and the finished animations before rendering sprites. Show the previews, say what
+   their approval at three points of every new character: the generated shape, the colours (on the
+   low-poly model), and the finished animations before rendering sprites. Show the previews, say what
    you checked and what still differs from the reference, and wait. Edits to an existing character
    stop once, before rendering.
 
 ## Workflows
 
-### New character from a generated model
+### New character
 
-When the image-to-3D generator is set up (README) and the user wants it, or gives a model sheet
-(front, side and rear views, ideally a T-pose):
+Follow [references/generated.md](references/generated.md):
 
-1. Make a transparent-background version of the front view and run
-   `python pp.py generate <char_dir> <image>`. Write `scripts/001_model.py`: `model.import_mesh`
-   (height from the sheet, aligned to its silhouettes) and `model.smooth_normals`. Preview with
-   `pp.py preview --turnaround`. **Checkpoint 1: the shape.** Show the user the turnaround and stop
-   until they approve it (or ask for another seed or image).
-2. Rig it: a skeleton fitted to the mesh with humanoid bone names (`rig.add_bones`,
-   `rig.add_foot_ik`) and `model.auto_weights` (check that its count of unweighted vertices is near
-   0, then keep hoods and torsos off the arm bones, and tails off everything but the tail bones).
-   A T-pose rest means the arms hang at the sides with `upper_arm` Z about -75.
-3. Paint it after rigging, so painting knows the parts: `model.paint(body, B, palette, bake=False,
-   regions=..., facing=0.05)` with a flat palette sampled from the sheet and, for every body region,
-   the colours it may use; paint the head (and anything else the side and rear sheets draw
-   differently) from the front sheet only (modelling.md, section 6). Preview with
-   `--compare --turnaround`. **Checkpoint 2: the colours.** Show the user both previews and stop until
-   they approve.
-4. Animate as below, preview every animation (`--view` for each direction of an 8-direction
-   character) and review it yourself first. **Checkpoint 3: the motion.** Show the user the
-   `previews/<name>_hires.png` contact sheets and tell them the .blend can be opened in Blender to
-   scrub the actions; stop until they approve, then `pp.py render`.
+1. `pp.py new`, `pp.py generate`, set `reference_scale.height`, and add the animations the user asked
+   for to `character.json` (for example `"idle": {"loop": true}`).
+2. `001_model.py`: `model.import_mesh`. Preview `--compare --turnaround`. **Checkpoint 1: the shape.**
+3. `002_rig.py`: joints placed on the mesh with `model.front` and `model.centre`, `rig.add_bones`,
+   `rig.add_foot_ik`, `model.auto_weights` (0 unweighted), `model.limb_weights` for limbs fused to
+   the body.
+4. `003_paint.py`: `model.flatten` and `model.paint` by region; touch up the sides the reference can't
+   show with `model.color_faces`, markings with `model.stripes`.
+5. Props: `model.cut` the generated one, model a low-poly one with `model.loft` on its own bone.
+6. `model.lowpoly` (with `tubes` for tails and other long round parts). Preview `--compare
+   --turnaround`. **Checkpoint 2: the colours.**
+7. One script per animation (animation.md); preview each from several views. **Checkpoint 3: the
+   motion.** Show the user the `previews/<name>_hires.png` contact sheets and say the .blend can be
+   opened in Blender to scrub the actions.
+8. `pp.py render`. Report the sheets in `out/`, frame counts and any warnings; `pp.py view` plays them.
 
-Generated meshes also need `"supersample": 4` in `output` to stay clean at sprite size.
-
-### New character from a reference
-
-1. `python pp.py new characters/<name> <reference>`.
-2. Read the reference's angle and scale (modelling.md, section 1) and fill in `character.json`:
-   `views: [yaw]` and `elevation` to match the reference's camera, `reference_scale` (the ground
-   pixel, the top pixel and the character's height in units), `pixels_per_unit` so the character
-   fills about 85% of the frame height (`0.85 * frame height / height in units`), and the
-   animation list, for example `"idle": {"loop": true}`. Defaults: 64x64 frames, 12 fps, 4 tones
-   with dithering and hue-shifted shadows, inner outlines, despeckle. Give an animation its own
-   `frame` if it reaches outside, and move `anchor` up from the bottom when the camera looks down
-   (parts toward the camera then draw below the ground point).
-3. Study the reference (modelling.md, section 1). Write `scripts/001_build_model.py`: the rig
-   (`rig.humanoid(...)` with measured proportions, or `rig.custom(...)`), `rig.add_foot_ik()` for
-   legged characters, extra bones, then every part (soft parts with `smooth=2`).
-4. `pp.py run`, then `pp.py preview --compare --turnaround`. Fix every difference from the
-   reference with new scripts. Once the idle exists, `--compare` shows its first pose, which should
-   match the reference's pose. **Checkpoints 1 and 2: the shape and the colours** (built together
-   here, as each part has its colour). Show the user both previews and stop until they approve.
-5. Fuse the soft parts into game-ready skins, one per region that moves together, each limited to
-   its region's bones (`build.smooth_skin(name, parts, voxel=..., relax=..., faces=..., bones=...)`,
-   modelling.md section 3). Preview again.
-6. For each animation, write `scripts/NNN_anim_<name>.py` with `anim.action(...)`, animated as for a
-   3D game with weight, overlap and planted feet (animation.md), run it, then
-   `pp.py preview --anim <name>`. Review the motion and fix: it should feel alive, not just move.
-   **Checkpoint 3: the motion.** Show the user the `previews/<name>_hires.png` contact sheets (and
-   say the .blend can be opened in Blender to scrub the actions); stop until they approve.
-7. `pp.py render`, then `pp.py view` to play them. Report the sheets in `out/`, frame counts and any
-   warnings.
+If the generator isn't set up (README) and the user doesn't want to set it up, build the character
+from parts instead ([references/modelling.md](references/modelling.md)) and skip `generate`,
+`import_mesh` and `paint`; `lowpoly` is only for generated meshes.
 
 ### Add an animation
 
 `inspect` -> add it to `character.json` -> new `NNN_anim_<name>.py` -> run -> preview -> review ->
 `render <name>`. The model and the other actions stay as they are.
 
-### Change the model or an animation ("bigger helmet", "more windup")
+### Change the model or an animation ("bigger hat", "more windup")
 
-`inspect` -> new script that changes only what was asked (`build.part()` with the same name
-replaces a part; `anim.action(name)` rewrites an action, so start from its keys in the `inspect`
-output) -> run -> preview -> review -> re-render the affected sheets.
+`inspect` -> new script that changes only what was asked -> run -> preview -> review -> re-render the
+affected sheets. On a low-poly character, recolour with `model.color_faces` on `body`, or change the
+guide `body_hi` and run `model.lowpoly` again. `anim.action(name)` rewrites an action, so start from its
+keys in the `inspect` output.
 
-### Change render settings ("128x128", "Sweetie 16 palette", "no outline", "side view", "8 fps")
+### Change render settings ("128x128", "Sweetie 16 palette", "outline", "side view only", "8 fps")
 
 Edit `character.json` (`output`, or one animation's entry to override it there) -> `render`. Don't
 touch the .blend. The fps only changes how often the motion is sampled; the animation's speed stays
@@ -147,18 +118,17 @@ New script: `import anim; anim.retime(0.75, ["attack"])` (under 1 is faster), ru
 
 ### Reuse an animation from another character
 
-Both characters must share bone names. New script:
-`anim.import_action("../knight/knight.blend", "walk")` (optionally a new name as the third argument),
-add the animation to `character.json`, then preview and adjust keys that depend on proportions
-(lunges, bobs).
+Both characters must share bone names. New script: `anim.import_action("../knight/knight.blend",
+"walk")` (paths from the character's folder; optionally a new name as the third argument), add the
+animation to `character.json`, then preview and adjust keys that depend on proportions or on the rest
+pose (lunges, bobs, arm angles).
 
 ### Save to or use the library
 
 A workspace can keep a `library/` folder next to `characters/`. Save with
 `library.save_parts("../../library/parts/<name>.json", [part names])` or
 `library.save_action("../../library/actions/<name>.json", "<action>")`, and load into another character
-with `library.load_parts(path, scale=...)` or `library.load_action(path, "<new name>")`. Parts land
-relative to their bones, so they fit different proportions; preview afterwards.
+with `library.load_parts(path, scale=...)` or `library.load_action(path, "<new name>")`.
 
 ### The user edited the .blend and asks to re-render
 
@@ -166,18 +136,20 @@ Render only. Don't run scripts against the .blend.
 
 ## character.json
 
+`pp.py new` writes it with the PS1 look; `generate` fills in `reference_scale` (but its `height`) and
+`references`:
+
 ```json
 {
-  "name": "knight",
+  "name": "sheriff",
   "reference": "reference.png",
-  "reference_scale": {"ground": [630, 1170], "top": 185, "height": 2.2},
-  "rig": "humanoid",
+  "reference_scale": {"ground": 965, "top": 147, "height": 2.2},
+  "references": [{"image": "analysis/flat.png", "mask": "analysis/mask.png", "view": 90, "center": 497}],
   "output": {
-    "frame": [64, 64], "pixels_per_unit": 24, "anchor": "bottom-center", "fps": 12,
-    "views": [70], "elevation": 8,
-    "shading_steps": 4, "dither": 0.35, "hue_shift": 0.5, "light": [-1, -1, 1],
-    "palette": null, "outline": {"color": "#1a1c2c", "mode": "inner"}, "despeckle": true,
-    "columns": null, "merge_holds": false, "normals": false
+    "frame": [64, 64], "pixels_per_unit": 17, "anchor": [32, 52], "fps": 12,
+    "shading_steps": 5, "dither": 0.6, "hue_shift": 0.15, "light": [-1, -0.6, 0.7], "despeckle": false,
+    "views": {"S": 90, "SE": 45, "E": 0, "NE": 315, "N": 270, "NW": 225, "W": 180, "SW": 135},
+    "elevation": 30, "supersample": 4
   },
   "animations": {
     "idle": {"loop": true},
@@ -186,26 +158,16 @@ Render only. Don't run scripts against the .blend.
 }
 ```
 
-`views` are camera angles in degrees around the character: 0 sees its right side (facing screen
-right), 90 its front, 180 its left side (facing screen left), 270 its back; 70 is a three-quarter view
-turned slightly to screen right. The first is the game view; more than one writes `<name>_<angle>`
-sheets, and `{name: angle}` names them: 8-direction sprites are `{"S": 90, "SE": 45, "E": 0, "NE": 315,
-"N": 270, "NW": 225, "W": 180, "SW": 135}` (`idle_S`, ...). Review each direction with
-`pp.py preview --anim <name> --view E`. `elevation` raises the camera to look down. `light` is relative to the camera (+x screen
-right, -y toward the camera, +z up). `palette` is a list of hex colours or a `.hex`/`.gpl` file next
-to `character.json`. `dither` (0-1) mixes neighbouring tones with an ordered pattern; `hue_shift`
-(0-1) makes shadows cooler and light warmer. `outline.mode` is `outer` or `inner` (also between
-overlapping parts).
-`merge_holds: true` merges identical consecutive frames into one longer frame. `supersample: 4`
-renders 4x4 samples per pixel and keeps the dominant colour, with hysteresis from frame to frame, so
-pixels stop flickering as the model moves; use it for generated or detailed meshes. `normals: true` adds
-a normal-map sheet for lighting sprites in the engine. The README's table lists every key.
+`views` are camera angles around the character (90 sees its front, 0 its right side, 270 its back);
+8 directions write `idle_S`, `idle_SE`, ... Keep the whole character and its animations inside the
+frame from every view: the character is about `height * pixels_per_unit` pixels tall, and with the
+camera looking down, `anchor` (the pixel under the origin) sits above the frame's bottom. An animation
+can have its own `frame`. Every setting: [references/render.md](references/render.md).
 
 ## Output
 
 `out/<name>.png` is a spritesheet: one frame per `1 / fps` seconds of animation, in one row (or
-`columns` per row), so a 2 s idle at 12 fps in 64x64 frames is a 1536x64 sheet. `out/<name>.json` is
-in Aseprite's array format: frame rectangles, per-frame `duration` in ms, a frame tag, and
-`rootMotion` offsets in pixels (y down) when the animation moves the root. With `normals`,
-`out/<name>_n.png` has the same layout (OpenGL convention: x right, y up, z toward the viewer) and the
-JSON names it in `meta.normalMap`. Engines' Aseprite importers read it directly.
+`columns` per row), so a 2 s idle at 12 fps in 64x64 frames is a 1536x64 sheet. `out/<name>.json` is in
+Aseprite's array format: frame rectangles, per-frame `duration` in ms, a frame tag, and `rootMotion`
+offsets in pixels (y down) when the animation moves the root. Engines' Aseprite importers read it
+directly.
