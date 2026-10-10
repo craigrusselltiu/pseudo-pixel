@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.5.1 - 2026-10-10
+
+### Changed
+
+- The skill covers any subject (characters, creatures, vehicles, props), not only humanoids: rigging
+  what moves, and colouring as a general method (paint, review all 8 views, fix every wrong patch with
+  measured `color_faces` rules in one complete paint script, review again on the low-poly model).
+- A face's part, for `paint` regions, `stripes` and `lowpoly` tubes, is its weighted bone unless the face
+  looks toward that bone (another part's surface pressed against a limb, which automatic weights give
+  to the limb); then it is the nearest bone it looks away from.
+
+### Fixed
+
+- `model.lowpoly` works on rigs without a head bone (one zone with the whole budget).
+
 ## v0.5.0 - 2026-10-10
 
 The generated PS1 low-poly pipeline is now the default: reference -> TripoSG mesh -> rig -> paint ->

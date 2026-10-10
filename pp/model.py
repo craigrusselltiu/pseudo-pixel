@@ -399,9 +399,9 @@ def paint(obj, B, palette, views=None, radius=2, mirror_side=True, bake=True, cl
     can't flood the back of a head. facing: how squarely (0-1) a face must point at a view's camera to
     be painted from it; lower it to paint grazing faces (a hat's crown from the front).
 
-    regions (on a skinned mesh): {bone name or prefix: [palette names]}. A face whose vertices are
-    mostly weighted to a matching bone may only take those colours, and when no view sees it, it is
-    filled only from faces of the same region. Projection can't tell a tail from the trousers in front
+    regions (on a skinned mesh): {bone name or prefix: [palette names]}. A face whose bone matches (the
+    bone most of its vertices are weighted to, unless the face looks toward it: see _face_bones) may only
+    take those colours, and when no view sees it, it is filled only from faces of the same region. Projection can't tell a tail from the trousers in front
     of it; the skin weights can: {"tail.": ["fur", "fur_dark", "cream"]}. A region can also limit the
     views that paint it, {"head": {"colors": [...], "views": ["front"]}}: a generated mesh lines up
     with the image it was generated from, and other sheets drawn separately can land on the wrong
@@ -512,22 +512,43 @@ def _neighbours(mesh):
     return nb
 
 
-def _regions(obj, regions):
-    """Each face's region (a key of `regions`, matched as a bone name prefix against the bone most of its
-    vertices are weighted to), or None."""
+def _face_bones(obj):
+    """Each face's bone: the one most of its vertices are weighted to, unless the face looks toward that
+    bone (it is another part's surface pressed against that limb: the back of a coat under a tail, the
+    side of a coat under an arm, which automatic weights give to the limb); then the nearest bone it looks
+    away from. None for faces without weights."""
     names = {g.index: g.name for g in obj.vertex_groups}
-    vert = []
-    for v in obj.data.vertices:
-        best = max(v.groups, key=lambda g: g.weight, default=None)
-        bone = names.get(best.group) if best else None
-        vert.append(next((r for r in regions if bone and bone.startswith(r)), None))
+    vert = [names.get(max(v.groups, key=lambda g: g.weight).group) if len(v.groups) else None
+            for v in obj.data.vertices]
+    arm = next((m.object for m in obj.modifiers if m.type == "ARMATURE" and m.object), None)
+    segs = {b.name: (b.head_local, b.tail_local) for b in arm.data.bones if b.use_deform} if arm else {}
+    m = arm.matrix_world.inverted() @ obj.matrix_world if arm else Matrix()
+    m3 = m.to_3x3().inverted().transposed()
+
+    def away(c, n, bone):
+        q, t = intersect_point_line(c, *segs[bone])
+        a, b = segs[bone]
+        q = a + (b - a) * min(max(t, 0.0), 1.0)
+        return n.dot((c - q).normalized()), (c - q).length
+
     out = []
     for p in obj.data.polygons:
         counts = {}
         for i in p.vertices:
             counts[vert[i]] = counts.get(vert[i], 0) + 1
-        out.append(max(counts, key=counts.get))
+        bone = max(counts, key=counts.get)
+        if bone in segs:
+            c, n = m @ p.center, (m3 @ p.normal).normalized()
+            if away(c, n, bone)[0] < -0.2:
+                near = sorted(segs, key=lambda b: away(c, n, b)[1])
+                bone = next((b for b in near if away(c, n, b)[0] >= 0), bone)
+        out.append(bone)
     return out
+
+
+def _regions(obj, regions):
+    """Each face's region: the key of `regions` that its bone (_face_bones) starts with, or None."""
+    return [next((r for r in regions if b and b.startswith(r)), None) for b in _face_bones(obj)]
 
 
 def _fill(mesh, unset, region=None, banned=()):
@@ -736,17 +757,13 @@ def cut(obj, rule):
 
 def stripes(obj, bones, color, count, share=0.45, start=0.2, end=0.95, base=None):
     """Paint `count` rings of `color` around the part on `bones` (a tail's markings), when the reference
-    draws them too faintly for paint to pick up: the faces mostly weighted to those bones, measured along
+    draws them too faintly for paint to pick up: the faces on those bones (_face_bones), measured along
     the chain from its root (0) to its tip (1), with rings evenly spaced between `start` and `end`, each
     `share` of its spacing wide. base: a colour for the faces between the rings (default: keep theirs)."""
     arm = rig.armature()
     segs = _segments(arm, bones)
     lengths = np.cumsum([0] + [(b - a).length for _, a, b in segs])
-    names = {g.index: g.name for g in obj.vertex_groups}
-    owner = []
-    for v in obj.data.vertices:
-        g = max(v.groups, key=lambda g: g.weight, default=None)
-        owner.append(names.get(g.group) if g else None)
+    owner = _face_bones(obj)
     slots = {}
     for c in [color] + ([base] if base else []):
         if c.lower() not in [m.name for m in obj.data.materials]:
@@ -754,7 +771,7 @@ def stripes(obj, bones, color, count, share=0.45, start=0.2, end=0.95, base=None
         slots[c] = [m.name for m in obj.data.materials].index(c.lower())
     painted = 0
     for p in obj.data.polygons:
-        if sum(owner[i] in bones for i in p.vertices) * 2 <= len(p.vertices):
+        if owner[p.index] not in bones:
             continue
         _, _, _, t, k = _nearest_on(p.center, segs)
         s = (lengths[k] + t * (lengths[k + 1] - lengths[k])) / lengths[-1]
@@ -930,12 +947,8 @@ def _tube(name, guide, arm, bones, sides=8, slices=40, max_band=0.2):
     rings fitted to the guide's surface along the tail's centreline, with a ring on every colour boundary,
     so each stripe is its own band of polygons. Returns (the tube object, the guide faces it replaces)."""
     gm = guide.data
-    names = {g.index: g.name for g in guide.vertex_groups}
-    owner = []
-    for v in gm.vertices:
-        g = max(v.groups, key=lambda g: g.weight, default=None)
-        owner.append(names.get(g.group) if g else None)
-    tail_faces = [p.index for p in gm.polygons if sum(owner[i] in bones for i in p.vertices) * 2 > len(p.vertices)]
+    owner = _face_bones(guide)
+    tail_faces = [p.index for p in gm.polygons if owner[p.index] in bones]
     if len(tail_faces) < 20:
         raise ValueError(f"lowpoly tube {name}: almost no faces weighted to {bones}")
 
@@ -1036,8 +1049,9 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6):
     low-poly models over high-poly sculpts. The generated mesh is the guide: a copy is smoothed (so the
     reduction makes broad planes, not crumpled ones) and reduced by edge collapse to a triangle budget per
     zone, spent where it shows: budget {"face": n, "head": n, "body": n}, default 450, 300, 650 (Crash
-    Bandicoot had about 500-700 triangles, Spyro about 410). The head is everything above the neck bone's
-    head; the face is its front. No textures: every triangle takes one colour, the majority of the guide's
+    Bandicoot had about 500-700 triangles, Spyro about 410). The head is everything above the neck (or
+    head) bone's head, the face its front; a rig without a head bone (a vehicle, a blob) is one zone with
+    the whole budget. No textures: every triangle takes one colour, the majority of the guide's
     paint under it, and is flat shaded, so the facets read at sprite size. Weights come from the guide, so
     the rig and any actions work unchanged.
 
@@ -1047,7 +1061,7 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6):
 
     The guide stays in the .blend as `<name>_hi`, hidden from the render; calling lowpoly again rebuilds
     from it (to change the budget, or after repainting or reweighting the guide)."""
-    budget = {"face": 450, "head": 300, "body": 650, **(budget or {})}
+    budget = {"body": 650, "head": 300, "face": 450, **(budget or {})}
     tubes = tubes or {}
     arm = rig.armature()
     guide = bpy.data.objects.get(name + "_hi")
@@ -1079,11 +1093,15 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6):
     view.objects.active = lp
 
     # 2. Smooth, then reduce each zone in turn to its budget, the others held
-    hb = arm.data.bones.get("neck") or arm.data.bones["head"]
-    head_z, head_x = hb.head_local.z, hb.head_local.x
-    co = _co(lp)
-    xmax = co[co[:, 2] > head_z, 0].max() if (co[:, 2] > head_z).any() else head_x
-    face_x = head_x + 0.35 * (xmax - head_x)
+    hb = arm.data.bones.get("neck") or arm.data.bones.get("head")
+    if hb is None:  # nothing with a head (a car, a slime): one zone with the whole budget
+        budget = {"body": sum(budget.values())}
+        head_z = face_x = math.inf
+    else:
+        head_z, head_x = hb.head_local.z, hb.head_local.x
+        co = _co(lp)
+        xmax = co[co[:, 2] > head_z, 0].max() if (co[:, 2] > head_z).any() else head_x
+        face_x = head_x + 0.35 * (xmax - head_x)
 
     def zone(c):
         return "body" if c.z <= head_z else "face" if c.x > face_x else "head"
@@ -1095,7 +1113,7 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6):
     mod.iterations, mod.lambda_factor, mod.use_volume_preserve = smooth, 1.0, True
     bpy.ops.object.modifier_apply(modifier=mod.name)
     lp.vertex_groups.new(name="pp_reduce")
-    for z in ("body", "head", "face"):
+    for z in budget:
         vg = lp.vertex_groups["pp_reduce"]  # looked up again: applying a modifier invalidates the old one
         for v in lp.data.vertices:
             vg.add([v.index], 1.0 if zone(v.co) == z else 0.0, "REPLACE")

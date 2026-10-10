@@ -1,7 +1,7 @@
 # pseudo-pixel
 
-Turn a character reference image into pixel-art spritesheets. A coding agent generates a 3D model of
-the character, rigs and paints it, turns it into a PS1-style low-poly model, animates it, and renders
+Turn a reference image (a character, a creature, a vehicle, a prop) into pixel-art spritesheets. A coding
+agent generates a 3D model of it, rigs and colours it, turns it into a PS1-style low-poly model, animates it, and renders
 the motion small from 8 directions in Blender.
 
 ![The sheriff red panda: the reference, then its idle from 8 directions and its run cycle](docs/red_panda.png)

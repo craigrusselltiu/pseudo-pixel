@@ -1,16 +1,19 @@
 ---
 name: pseudo-pixel
-description: Turn a 2D character reference image into pixel-art spritesheets (idle, run, attack, ...) by generating a 3D model of it (TripoSG), rigging and painting it, turning it into a PS1-style low-poly model, animating it as for a 3D game, and rendering the motion small from 8 directions with dithered toon shading. Use when the user wants sprites or spritesheets of a character, wants to add or change animations of an existing pseudo-pixel character, or wants to change how its sheets are rendered (size, fps, palette, outline, angle).
+description: Turn a reference image of a character, creature, vehicle or prop into pixel-art spritesheets (idle, run, attack, drive, ...) by generating a 3D model of it (TripoSG), rigging and colouring it, turning it into a PS1-style low-poly model, animating it as for a 3D game, and rendering the motion small from 8 directions with dithered toon shading. Use when the user wants sprites or spritesheets of anything, wants to add or change animations of an existing pseudo-pixel character, or wants to change how its sheets are rendered (size, fps, palette, outline, angle).
 ---
 
 # pseudo-pixel
 
-You make characters with Blender Python scripts, review the renders by looking at them, and render
-spritesheets. Blender does all the rendering. You do the rigging, painting and animation.
+You make sprites of whatever the reference shows (a character, a creature, a vehicle, a prop) with
+Blender Python scripts, review the renders by looking at them, and render spritesheets. Blender does
+all the rendering. You do the rigging, colouring and animation. Everything below says "character" for
+whatever the subject is.
 
-The pipeline: **reference image -> generated 3D mesh (TripoSG) -> rig -> paint -> PS1 low-poly model ->
-animations -> spritesheets.** The sprites should look like the reference: same proportions, features
-and colours, as a faceted low-poly model with flat-coloured triangles (as PS1 characters were).
+The pipeline: **reference image -> generated 3D mesh (TripoSG) -> rig -> colour -> PS1 low-poly model ->
+animations -> spritesheets.** The sprites should look like the reference from its own side, with every
+other side believable: same proportions, features and colours, as a faceted low-poly model with
+flat-coloured triangles (as PS1 games were).
 
 ## Tools
 
@@ -53,8 +56,9 @@ props, low poly), `rig` (skeletons), `anim` (actions, `leg_ik`, `aim`), `build` 
 4. **Number your scripts** in `<char_dir>/scripts/`: `001_model.py`, `002_rig.py`, `003_paint.py`, ...
    Write each one there, then `pp.py run` it. Never edit a script that has already run: write a new
    one. The folder is a log of what was done.
-5. **Look at every preview** before moving on, and be strict: compare against the reference, from every
-   side, at sprite size. Up to 5 review rounds per step, then stop and tell the user what still differs.
+5. **Look at every preview** before moving on, and be strict: compare against the reference, from all 8
+   views, at sprite size, and list every difference before fixing any. Up to 5 review rounds per step,
+   then stop and tell the user what still differs.
 6. **Render settings live in `character.json`**, not in the .blend. Changing them (size, fps, palette,
    angle) only needs `pp.py render`.
 7. **Stay general.** Measure positions on the mesh and the reference (`model.centre`, `model.front`,
@@ -64,35 +68,37 @@ props, low poly), `rig` (skeletons), `anim` (actions, `leg_ik`, `aim`), `build` 
    root to travel (use root motion).
 9. **Human checkpoints.** Until the user says they trust the workflow and can skip them, stop for
    their approval at three points of every new character: the generated shape, the colours (on the
-   low-poly model), and the finished animations before rendering sprites. Show the previews, say what
+   low-poly model, from all 8 views), and the finished animations before rendering sprites. Show the previews, say what
    you checked and what still differs from the reference, and wait. Edits to an existing character
    stop once, before rendering.
 
 ## Workflows
 
-### New character
+### New character (or creature, vehicle, prop)
 
 Follow [references/generated.md](references/generated.md):
 
 1. `pp.py new`, `pp.py generate`, set `reference_scale.height`, and add the animations the user asked
    for to `character.json` (for example `"idle": {"loop": true}`).
 2. `001_model.py`: `model.import_mesh`. Preview `--compare --turnaround`. **Checkpoint 1: the shape.**
-3. `002_rig.py`: joints placed on the mesh with `model.front` and `model.centre`, `rig.add_bones`,
-   `rig.add_foot_ik`, `model.auto_weights` (0 unweighted), `model.limb_weights` for limbs fused to
-   the body.
-4. `003_paint.py`: `model.flatten` and `model.paint` by region; touch up the sides the reference can't
-   show with `model.color_faces`, markings with `model.stripes`.
-5. Props: `model.cut` the generated one, model a low-poly one with `model.loft` on its own bone.
-6. `model.lowpoly` (with `tubes` for tails and other long round parts). Preview `--compare
-   --turnaround`. **Checkpoint 2: the colours.**
+3. `002_rig.py`: bones for what moves, placed on the mesh with `model.front` and `model.centre`;
+   `rig.add_foot_ik` for legs; `model.auto_weights` (0 unweighted); `model.limb_weights` for limbs fused
+   to the body; rigid parts weighted 100% to their bone. Pose-test the weights.
+4. Colour: palette, `model.flatten`, `model.paint`, then review all 8 views and fix every wrong patch
+   with measured `model.color_faces` rules (and `model.stripes` for rings), each fix a complete new
+   paint script, until every view is right.
+5. Parts the generator mushed (weapons, tools, antennas, thin wheels): `model.cut` them and model
+   low-poly ones with `model.loft` on their own bones.
+6. `model.lowpoly` (with `tubes` for tails and other long round parts). Review the colours again on
+   the low-poly model. **Checkpoint 2: the colours.**
 7. One script per animation (animation.md); preview each from several views. **Checkpoint 3: the
    motion.** Show the user the `previews/<name>_hires.png` contact sheets and say the .blend can be
    opened in Blender to scrub the actions.
 8. `pp.py render`. Report the sheets in `out/`, frame counts and any warnings; `pp.py view` plays them.
 
-If the generator isn't set up (README) and the user doesn't want to set it up, build the character
-from parts instead ([references/modelling.md](references/modelling.md)) and skip `generate`,
-`import_mesh` and `paint`; `lowpoly` is only for generated meshes.
+If the generator isn't set up (README) and the user doesn't want to set it up, build the subject from
+parts instead ([references/modelling.md](references/modelling.md)) and skip `generate`, `import_mesh`
+and `paint`; `lowpoly` is only for generated meshes.
 
 ### Add an animation
 
@@ -141,7 +147,7 @@ Render only. Don't run scripts against the .blend.
 
 ```json
 {
-  "name": "sheriff",
+  "name": "hero",
   "reference": "reference.png",
   "reference_scale": {"ground": 965, "top": 147, "height": 2.2},
   "references": [{"image": "analysis/flat.png", "mask": "analysis/mask.png", "view": 90, "center": 497}],
