@@ -14,7 +14,13 @@ python pp.py generate characters/<name>
 `generate` cuts the subject out of the reference (unless the image already has a transparent
 background) into `analysis/mask.png`, measures it into `character.json` (`reference_scale` ground and
 top rows, a `references` entry with the column at the middle of its base as the centre line), and makes
-`model/generated.glb` (several minutes on the GPU). Set `reference_scale.height` (its real height in
+`model/generated.glb` (several minutes on the GPU). Look at `analysis/cutout.png`: it must be the
+subject alone. If a floor, a shadow, scenery or a second subject came along (busy backgrounds do that),
+make a clean cutout yourself: a copy of the reference at the same size, transparent everywhere but the
+subject (start from `analysis/cutout.png` and erase what doesn't belong; don't crop or resize, since
+colouring reads the reference at the mask's pixel positions). Then run `generate` again on it,
+`pp.py generate characters/<name> characters/<name>/analysis/clean.png`; the mask and measurements
+come from its transparency. Set `reference_scale.height` (its real height in
 units: about 1.6-2.2 for a person, 1.4 for a car), then `scripts/001_model.py`:
 
 ```python

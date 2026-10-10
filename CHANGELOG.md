@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.5.2 - 2026-10-10
+
+### Fixed
+
+- `pp.py generate` on a cleaner cutout updates the reference's mask and centre line (it kept the first
+  run's), and the skill says to check the cutout and how to make a clean one when the background left
+  something behind.
+
 ## v0.5.1 - 2026-10-10
 
 ### Changed

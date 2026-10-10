@@ -79,8 +79,9 @@ with open(cfg_path, encoding="utf-8") as f:
     cfg = json.load(f)
 scale = cfg.get("reference_scale") or {}
 cfg["reference_scale"] = {"ground": ground, "top": top, "height": scale.get("height")}
-if not cfg.get("references"):
-    cfg["references"] = [{"image": cfg["reference"], "mask": "analysis/mask.png", "view": 90, "center": center}]
+refs = cfg.get("references") or [{"image": cfg["reference"], "view": 90}]
+refs[0].update({"mask": "analysis/mask.png", "center": center})  # a rerun on a cleaner cutout updates them
+cfg["references"] = refs
 with open(cfg_path, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
