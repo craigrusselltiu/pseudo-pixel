@@ -6,6 +6,10 @@ it. Each step is one numbered script (or a few), run with `pp.py run`, then prev
 
 ## 1. Generate and import
 
+The reference must be one the generator can read: a clean front view of the whole subject in a neutral
+pose, on a plain background, without pixel-art edges or painted shadows. If it isn't (a sprite, an
+action pose, a scene), make one first with an image model: [reference_image.md](reference_image.md).
+
 ```
 python pp.py new characters/<name> <reference image>
 python pp.py generate characters/<name>
@@ -70,7 +74,9 @@ def chain(pixels, width):
 ```
 
 Parts the reference doesn't show well (a tail behind, the far wheels) are placed from the turnaround's
-views. The rest pose is the reference's pose. Then:
+views. Feet run from the ankle to the toe of the foot or shoe under it, which is often turned out:
+`heel, toe = sole(body, ankle)`, then `foot.L: (ankle, toe + Vector((0, 0, 0.04)), "shin.L")`. The rest
+pose is the reference's pose. Then:
 
 ```python
 rig.add_bones(arm, bones)
@@ -87,8 +93,10 @@ limb_weights(body, arm, [["upper_arm.R", "forearm.R", "hand.R"], ["upper_arm.L",
 - Rigid parts (wheels, a turret, a helmet that must not bend) take 100% of their bone: pick their
   vertices by position and set the weights directly
   (`group.add([v.index], 1.0, "REPLACE")` after removing them from the other groups).
-- Check the weights by posing: a quick script that bends each joint to its extreme, `--turnaround`,
-  then put the pose back. Nothing should tear or drag along.
+- Check the weights by posing: a quick script that keys each joint at its extreme into a test action
+  (`anim.action("posetest")`), `pp.py preview --anim posetest` from a few views (any action in the .blend
+  previews), then delete the action. Nothing should tear or drag along; the preview's STRETCHED lines
+  name the bones a tear runs between.
 
 ## 3. Colour
 
@@ -169,26 +177,67 @@ loft("sword_blade", [ring(p, Y, Z, (0.02, 0.02, 0.06, 0.06), n=4) for p in (grip
 every piece over 1.5 px thick at sprite size. A part on its own bone can spin and be aimed with
 `anim.aim`.
 
+Long parts that bend (a tail, a tentacle, a hose, a cable) loft along their bone chain: give `loft` the
+list of bones and it skins each vertex to its nearest one; give `color` one colour per band between
+rings for stripes. Measure the path on the guide (slices of `body_hi`'s vertices), cut the generated
+part out, and loft rings along it:
+
+```python
+rings = [ring(p, u, v, (r, r, r, r), n=8) for p, u, v, r in path]             # measured centres, radii
+loft("tail", rings, ["tail.1", "tail.2", "tail.3"], [LIGHT, DARK, LIGHT, ...], smooth=0)
+```
+
 ## 5. Low poly
 
 ```python
-from model import lowpoly
+from model import detach, lowpoly
 lowpoly("body")                                        # tubes={"tail": ["tail.1", "tail.2", "tail.3"]}
 ```
 
-The generated mesh becomes the guide (hidden as `body_hi`): a copy is smoothed and reduced to about 1400
-triangles, every triangle takes the guide's majority colour and is flat shaded, and the weights come
-from the guide. Colour borders are kept: the reduction collapses vertices where two colours meet last,
+The generated mesh becomes the guide (hidden as `body_hi`): a copy is smoothed and reduced to about 3500
+triangles, every triangle takes the guide's majority colour, single-triangle specks take their
+neighbours' colour, and the weights come from the guide. The model is smooth (Gouraud) shaded, as PS1
+hardware shaded: the silhouette stays faceted, but the toon bands follow the broad forms. Flat shading
+on a reduced generated surface, whose triangles all lean slightly differently, gives every triangle its
+own tone and reads as choppy static; use `shading="flat"` only for hard-surface subjects whose planes
+are real (a crate, a robot). Colour borders are kept: the reduction collapses vertices where two colours meet last,
 so borders stay straight runs of edges and small features keep their own polygons; that is why the
 colouring comes first. With a head bone, the budget is split so the face gets the most
-(`budget={"face": 450, "head": 300, "body": 650}`); without one it is all `body`. Raise it for a busy
+(`budget={"face": 1000, "head": 700, "body": 1800}`); without one it is all `body`. Raise it for a busy
 subject, lower it for a simple one. `tubes` rebuilds long round parts (tails, tentacles, trunks, hoses)
 as 8-sided tubes along their bones, with a ring of edges on every colour boundary.
+
+If the low-poly surface is still lumpy (a noisy generated mesh), raise `smooth` (the smoothing passes
+before the reduction, default 6) or try `method="quad"`: QuadriFlow remeshes into even quads that follow
+the colour borders where they can, which deform more cleanly in animation, at the cost of more stepped
+colour borders. Compare both from several views before choosing. The real fix for a noisy mesh is a
+cleaner reference image (reference_image.md): grain in the image becomes grain in the mesh.
+
+Then separate every part that touches the body and moves on its own: the reduction and its weight
+transfer join what `limb_weights` freed (a fist resting on a vest ends up weighted to both, and the vest
+tears out with the hand), and a generated vehicle's wheels come fused to their arches:
+
+```python
+detach(body, arm, [["upper_arm.R", "forearm.R", "hand.R"], ["upper_arm.L", "forearm.L", "hand.L"],
+                   (["wheel.FL"], 0)])                  # weld 0: nothing joins it (a wheel, a hatch)
+```
+
+Each part's faces are split from the body and welded back only within `weld` (0.2) of its first joint,
+where it really joins (a shoulder), and each side keeps only its own bones. `tubes` follow their bones'
+line, so a part that curls back on itself (a tail curling down and up again) comes out as a stick: leave
+it out of `tubes` and loft it along its chain (section 4).
 
 Review the colours again on the low-poly model, from all 8 views at sprite size: a triangle takes its
 majority colour, so small features can vanish and edges can shift. Fix with `color_faces` on `body` (the
 same rules work), or fix the guide's colouring and run `lowpoly` again (it rebuilds from `body_hi`).
 **Checkpoint 2: the colours.**
+
+At this checkpoint the user may fix parts by hand in Blender: open the `.blend`, select `body`, Edit
+Mode, face select, pick faces and assign one of the palette materials (the material slots are named by
+their hex colour) or a new one, move or delete vertices, then save. After that, the hand edits are part
+of the model: never run `lowpoly` (or an earlier step) again, since it rebuilds `body` from the guide and
+throws them away. Later scripts change `body` in place. Ask the user what they changed, `inspect`, and
+carry on from the file.
 
 ## 6. Animate
 
@@ -196,7 +245,15 @@ As animation.md. The rest pose is the reference pose, so rotations start from th
 props with `anim.aim` in world directions rather than guessed angles. Vehicles and machines animate too
 (wheels spinning at the speed they travel, a body bobbing on its suspension, a turret turning). Review
 every action from several directions (`--anim run --view E`, `--view N`): a pose that reads from the
-front can push a limb through the body from the side. **Checkpoint 3: the motion.**
+front can push a limb through the body from the side. Fix every STRETCHED line the preview prints: the
+surface between the two bones it names tears into spikes; `detach` the part, or reweight the vertices
+between them.
+
+`pp.py play <char_dir>` opens every action in a 3D player in the browser: pick an action, play, pause,
+scrub or step sprite frame by sprite frame, change the speed, orbit, snap to the sprite views, and
+switch to "Sprite size" to see it at the sheet's frame size and fps. Give the user the player at
+**checkpoint 3: the motion**, and take their notes ("the wings beat too fast", "hold the lunge longer",
+"the head should lead the strike") as changes to make: one new script per round, then `play` again.
 
 ## 7. Render
 

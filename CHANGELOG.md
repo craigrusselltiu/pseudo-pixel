@@ -3,6 +3,72 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## v0.7.0 - 2026-10-13
+
+### Added
+
+- `pp.py play <char_dir>` opens the model's actions in a 3D player in the browser: pick an action, play,
+  pause, scrub or step by sprite frame, change the speed, orbit, snap to the sprite views, and see it at
+  the sheet's frame size and fps with the sheets' toon tones. The model is exported to
+  `previews/model.glb` and embedded in `previews/play.html`.
+- `references/reference_image.md`: making a clean reference for the generator with an image model, from a
+  brief (name, setting, moves, the user's notes): the prompt rules and template, checks on the result,
+  and optional side and back views for colouring. Without an image tool the agent hands the prompt to
+  the user and waits for the image.
+- `model.lowpoly(method="quad")` remeshes with QuadriFlow into even quads (colour borders marked sharp so
+  the quads follow them), falling back to edge collapse if QuadriFlow fails.
+- The user can fix faces by hand in Blender at the colour checkpoint; the skill keeps those edits by
+  never rebuilding the low-poly model afterwards.
+
+### Changed
+
+- `model.lowpoly` shades smooth (Gouraud, as PS1 hardware did) by default instead of flat:
+  flat-shaded, the reduced generated surface gave every triangle its own toon tone and read as choppy
+  static. `shading="flat"` keeps the old look for hard-surface subjects.
+- `model.lowpoly` gives single-triangle colour specks their neighbours' colour (`clean=False` to keep
+  them). `model.detach` shades the faces closing its openings like the rest of the model.
+
+## v0.6.0 - 2026-10-11
+
+### Added
+
+- `model.detach(obj, arm, parts)` separates parts that the low-poly model joined to the body again (a fist
+  resting on a vest, arms against a coat, a tail against the legs, wheels in their arches): each part's
+  faces are split off and welded back only at its root joint (or not at all, `weld=0`), each side keeps
+  only its own bones, and the openings are closed. On a test character its run's torn edges went from 54
+  to 17 (the rest is the coat skirt between the legs), its idle's to none.
+- `pp.py preview` reports STRETCHED frames: edges of a deforming mesh pulled past 2.5 times their rest
+  length, with the bones they run between, so a surface tearing between two parts shows before the
+  sheets are rendered.
+- `pp.py preview --anim` takes any action in the `.blend`, not only those in `character.json`, so a
+  pose test is previewed from the sprite camera.
+- `model.sole(obj, ankle)` gives the heel and toe of the foot or shoe under an ankle, so foot bones follow
+  turned-out shoes.
+- `model.loft` skins along a bone chain when given a list of bones (a tail, a tentacle, a hose), and takes
+  one colour per band between rings (stripes).
+- The animation reference covers gaits (arms against legs, feet pointing along the travel near the centre
+  line, planted feet on linear keys), slow secondary motion, upper-body breathing for idles, and props
+  that change hands or are thrown (stepped scale keys).
+- The skill and README cover working in the user's live Blender through a Blender MCP server: when the
+  user edits there, the numbered scripts run in their session and are saved there.
+
+### Changed
+
+- `model.lowpoly` defaults to about 3500 triangles (face 1000, head 700, body 1800) instead of about
+  1400: the old budget read as too blocky.
+- Background Blender runs (`pp.py run`, `preview`, `render`, `inspect`) start with factory settings, so the
+  user's add-ons (a Blender MCP server among them) aren't loaded and can't disturb the user's own session.
+- An animation's own `frame` without its own `anchor` moves the anchor with it, so the character stands in
+  the same place in every sheet (it stood 16 px left of centre in a 96 px wide attack).
+- `model.loft` with `smooth=0` is flat shaded, as its PS1-style pieces are meant to be.
+
+### Fixed
+
+- `pp.py generate` measures the centre line as the middle of both feet's outer edges, over a taller band:
+  when one foot is drawn lower, it measured from that foot alone (55 px off on a 1024 px reference), and
+  the model sat beside the reference in `--compare`. `import_mesh` centres on the middle of the feet's
+  extents to match.
+
 ## v0.5.3 - 2026-10-10
 
 ### Added

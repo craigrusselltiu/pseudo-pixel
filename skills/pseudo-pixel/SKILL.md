@@ -13,7 +13,7 @@ whatever the subject is.
 The pipeline: **reference image -> generated 3D mesh (TripoSG) -> rig -> colour -> PS1 low-poly model ->
 animations -> spritesheets.** The sprites should look like the reference from its own side, with every
 other side believable: same proportions, features and colours, as a faceted low-poly model with
-flat-coloured triangles (as PS1 games were).
+flat-coloured, Gouraud-shaded triangles (as PS1 games were).
 
 ## Tools
 
@@ -28,8 +28,9 @@ python pp.py run      <char_dir> <script.py>        # run a script against the .
 python pp.py inspect  <char_dir>                    # the .blend's current state as JSON
 python pp.py preview  <char_dir> --compare          # the model over the reference, same scale and angle
 python pp.py preview  <char_dir> --turnaround       # the model from every view, large and at sprite size
-python pp.py preview  <char_dir> --anim <name>      # contact sheets for an animation (--view E: from that view)
+python pp.py preview  <char_dir> --anim <name>      # contact sheets for an animation or any action (--view E)
 python pp.py render   <char_dir> [<name> ...]       # spritesheets + JSON in <char_dir>/out
+python pp.py play     <char_dir>                    # the model's actions in a 3D player in the browser
 python pp.py view                                   # play every rendered sheet in the browser
 ```
 
@@ -37,6 +38,8 @@ Scripts run inside Blender and can import the helpers: `model` (import, rig fitt
 props, low poly), `rig` (skeletons), `anim` (actions, `leg_ik`, `aim`), `build` (parts and `Ref`) and
 `library` (parts and actions saved as JSON). Read the reference before writing a script of that kind:
 
+- [references/reference_image.md](references/reference_image.md): making a clean reference for the
+  generator with an image model, from a brief (name, setting, moves, the user's notes).
 - [references/generated.md](references/generated.md): the pipeline step by step, with code.
 - [references/rig.md](references/rig.md): bone names, axes, rotation signs.
 - [references/animation.md](references/animation.md): 3D keyframing, timing, loops, review.
@@ -49,15 +52,30 @@ props, low poly), `rig` (skeletons), `anim` (actions, `leg_ik`, `aim`), `build` 
 If a Blender MCP server is connected (a tool that runs Python in the user's open Blender and shows its
 viewport), use it to look and to try things: open the character's `.blend` in it
 (`bpy.ops.wm.open_mainfile(filepath=...)`), look at the model from any angle, check a weight by posing a
-bone, measure a part, or try a colour rule or a pose before writing it into a script. It is for looking
-and trying only:
+bone, measure a part, try a colour rule or a pose, play an action, before writing it into a script.
 
-- Every change still goes through a numbered script and `pp.py run`, so the `.blend` and the scripts
-  stay the record of what was done. Never save from the live Blender.
-- `pp.py run` saves the file on disk: open it again in the live Blender afterwards, or you are looking
-  at the old version.
-- Previews and renders still come from `pp.py preview` and `pp.py render`: they use the sprite camera
-  and settings; the viewport doesn't.
+Who edits the file decides where changes are made:
+
+- **Only you** (the default): every change goes through a numbered script and `pp.py run`, and you
+  never save from the live Blender. `pp.py run` saves the file on disk: open it again in the live
+  Blender afterwards, or you are looking at the old version.
+- **The user, in the live Blender** (they paint, delete faces or pose there, or ask you to work in it):
+  their open session is the source of truth, and `pp.py run` would write the file under it (their next
+  save undoes your change, or yours undoes theirs). Still write each change as a numbered script, then
+  run it in the live Blender and save there:
+
+  ```python
+  import os, sys
+  sys.path.insert(0, r"<repo>/pp"); os.environ["PP_CHAR_DIR"] = r"<char_dir>"
+  path = r"<char_dir>/scripts/012_tail.py"
+  exec(compile(open(path, encoding="utf-8").read(), path, "exec"), {"__name__": "__main__"})
+  bpy.ops.wm.save_mainfile()
+  ```
+
+Previews and renders always come from `pp.py preview` and `pp.py render` (the sprite camera and settings;
+the viewport has neither), which read the file on disk: save in the live Blender first. They run
+Blender in the background with factory settings, so the user's add-ons, the MCP server among them, stay
+out of it.
 
 ## Rules
 
@@ -93,22 +111,30 @@ and trying only:
 
 Follow [references/generated.md](references/generated.md):
 
+0. If there is no reference the generator can read (only a name and a description, a pixel-art
+   sprite, an action pose, a scene), make one with an image model from a brief
+   ([references/reference_image.md](references/reference_image.md)). Without an image tool, give the
+   user the prompt and wait for the image.
 1. `pp.py new`, `pp.py generate`, set `reference_scale.height`, and add the animations the user asked
    for to `character.json` (for example `"idle": {"loop": true}`).
 2. `001_model.py`: `model.import_mesh`. Preview `--compare --turnaround`. **Checkpoint 1: the shape.**
-3. `002_rig.py`: bones for what moves, placed on the mesh with `model.front` and `model.centre`;
-   `rig.add_foot_ik` for legs; `model.auto_weights` (0 unweighted); `model.limb_weights` for limbs fused
-   to the body; rigid parts weighted 100% to their bone. Pose-test the weights.
+3. `002_rig.py`: bones for what moves, placed on the mesh with `model.front` and `model.centre` (feet
+   along their soles with `model.sole`); `rig.add_foot_ik` for legs; `model.auto_weights` (0
+   unweighted); `model.limb_weights` for limbs fused to the body; rigid parts weighted 100% to their
+   bone. Pose-test the weights.
 4. Colour: palette, `model.flatten`, `model.paint`, then review all 8 views and fix every wrong patch
    with measured `model.color_faces` rules (and `model.stripes` for rings), each fix a complete new
    paint script, until every view is right.
 5. Parts the generator mushed (weapons, tools, antennas, thin wheels): `model.cut` them and model
    low-poly ones with `model.loft` on their own bones.
-6. `model.lowpoly` (with `tubes` for tails and other long round parts). Review the colours again on
-   the low-poly model. **Checkpoint 2: the colours.**
-7. One script per animation (animation.md); preview each from several views. **Checkpoint 3: the
-   motion.** Show the user the `previews/<name>_hires.png` contact sheets and say the .blend can be
-   opened in Blender to scrub the actions.
+6. `model.lowpoly` (with `tubes` for tails and other long round parts), then `model.detach` for every
+   part that touches the body and moves on its own (arms, a tail, wheels, a turret). Review the colours
+   again on the low-poly model. **Checkpoint 2: the colours.** The user may then fix faces by hand in
+   Blender (generated.md, section 5); after that, never run `lowpoly` again.
+7. One script per animation (animation.md); preview each from several views and fix every STRETCHED
+   warning (`model.detach` the parts it names). **Checkpoint 3: the motion.** Open `pp.py play` for the
+   user (and the `previews/<name>_hires.png` contact sheets), and turn their notes into new scripts
+   until they are happy.
 8. `pp.py render`. Report the sheets in `out/`, frame counts and any warnings; `pp.py view` plays them.
 
 If the generator isn't set up (README) and the user doesn't want to set it up, build the subject from
@@ -174,7 +200,7 @@ Render only. Don't run scripts against the .blend.
   },
   "animations": {
     "idle": {"loop": true},
-    "attack": {"loop": false, "frame": [96, 64]}
+    "attack": {"loop": false}
   }
 }
 ```
@@ -183,7 +209,8 @@ Render only. Don't run scripts against the .blend.
 8 directions write `idle_S`, `idle_SE`, ... Keep the whole character and its animations inside the
 frame from every view: the character is about `height * pixels_per_unit` pixels tall, and with the
 camera looking down, `anchor` (the pixel under the origin) sits above the frame's bottom. An animation
-can have its own `frame`. Every setting: [references/render.md](references/render.md).
+can have its own `frame` when its preview reports it CLIPPED (the anchor moves with it, so the
+character stands in the same place in every sheet); otherwise keep one frame size for all. Every setting: [references/render.md](references/render.md).
 
 ## Output
 

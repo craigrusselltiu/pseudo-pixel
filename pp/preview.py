@@ -1,6 +1,7 @@
 """Run inside Blender: review images and text checks (pp.py preview). Never saves the .blend.
 
-    --anim NAME     contact sheets for that animation (repeatable); with no options, every animation
+    --anim NAME     contact sheets for that animation (repeatable): one in character.json, or any action
+                    in the .blend (a pose test); with no options, every animation
     --turnaround    the model in its rest pose next to the reference image
     --compare       the model over the reference image, at the reference's scale and view
     --view NAME     animation previews from that entry of `views` (a name like E, or a yaw) instead of the
@@ -18,7 +19,8 @@ placement show.
 For each animation it writes previews/<name>.png (every sprite frame at 4x, labelled with the timeline
 frame it was sampled at) and previews/<name>_hires.png (the same frames rendered at 4x the resolution,
 to judge poses), then prints checks: frame count, clipped frames, colours used, the character's size in
-pixels and parts too thin to render reliably.
+pixels, frames where the skin stretches between two bones that part (STRETCHED) and parts too thin to
+render reliably.
 """
 import os
 import sys
@@ -43,9 +45,10 @@ for a in opts_args:
 turnaround = "--turnaround" in opts_args
 compare = "--compare" in opts_args
 cfg = sprite.load_config(char_dir)
-missing = [n for n in anims if n not in cfg["animations"]]
+missing = [n for n in anims if n not in cfg["animations"] and n not in bpy.data.actions]  # any action previews
 if missing:
-    sys.exit(f"unknown animation(s) {missing}; character.json has {list(cfg['animations'])}")
+    sys.exit(f"unknown animation(s) {missing}; character.json has {list(cfg['animations'])}, the .blend "
+             f"{[a.name for a in bpy.data.actions]}")
 anims = anims or ([] if turnaround or compare else list(cfg["animations"]))
 out_dir = os.path.join(char_dir, "previews")
 os.makedirs(out_dir, exist_ok=True)
@@ -79,7 +82,53 @@ def preview_animation(r, name):
         print(f"  CLIPPED at timeline frames {clipped}: opaque pixels touch the frame edge")
     if any(o != (0.0, 0.0) for o in res["offsets"]):
         print(f"  root motion (px): {res['offsets']}")
+    for mesh, (hits, pairs) in stretched(r, name, keys).items():
+        print(f"  STRETCHED {mesh} at timeline frames {[f'{f:g}' for f, _ in hits]} (up to "
+              f"{max(n for _, n in hits)} edges over 2.5x their rest length), between "
+              + ", ".join(f"{a} and {b}" for a, b in pairs[:3]) + ": its surface joins parts that move apart "
+              "(a coat to a hand, a body to a wheel); model.detach separates them")
     print(f"  {path}\n  {hires_path}")
+
+
+def stretched(r, name, frames):
+    """{mesh: ([(frame, edges)], [(bone, bone)] most torn first)}: the frames where an armature-deformed mesh
+    has edges stretched past 2.5 times their rest length (and over 2 px), the spikes a surface tears into
+    when it follows two bones that part, and the bones its torn edges' ends follow."""
+    limit = 2.0 / cfg["output"]["pixels_per_unit"]
+    rest = {}
+    for o in r.meshes:
+        if any(m.type == "ARMATURE" for m in o.modifiers):
+            co = np.empty(len(o.data.vertices) * 3)
+            o.data.vertices.foreach_get("co", co)
+            e = np.empty(len(o.data.edges) * 2, dtype=np.int32)
+            o.data.edges.foreach_get("vertices", e)
+            names = {g.index: g.name for g in o.vertex_groups}
+            bone = [names[max(v.groups, key=lambda g: g.weight).group] if v.groups else "" for v in o.data.vertices]
+            rest[o.name] = (co.reshape(-1, 3), e.reshape(-1, 2), bone)
+    r.use_action(name)
+    hits, pairs = {}, {}
+    for f in frames:
+        r.scene.frame_set(int(f), subframe=f - int(f))
+        dg = bpy.context.evaluated_depsgraph_get()
+        for n, (co, e, bone) in rest.items():
+            ev = bpy.data.objects[n].evaluated_get(dg)
+            me = ev.to_mesh()
+            p = np.empty(len(me.vertices) * 3)
+            me.vertices.foreach_get("co", p)
+            ev.to_mesh_clear()
+            if len(p) != co.size:
+                continue
+            p = p.reshape(-1, 3)
+            a = np.linalg.norm(co[e[:, 0]] - co[e[:, 1]], axis=1)
+            b = np.linalg.norm(p[e[:, 0]] - p[e[:, 1]], axis=1)
+            torn = np.nonzero((b > 2.5 * np.maximum(a, 1e-4)) & (b > limit))[0]
+            if len(torn):
+                hits.setdefault(n, []).append((f, len(torn)))
+                tally = pairs.setdefault(n, {})
+                for i, j in e[torn]:
+                    pair = tuple(sorted((bone[i], bone[j])))
+                    tally[pair] = tally.get(pair, 0) + 1
+    return {n: (h, sorted(pairs[n], key=pairs[n].get, reverse=True)) for n, h in hits.items()}
 
 
 def fit(img, w, h):

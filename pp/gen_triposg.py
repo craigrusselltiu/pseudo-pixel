@@ -72,8 +72,10 @@ Image.fromarray(np.dstack([rgb, np.where(mask, 255, 0).astype(np.uint8)])).save(
 # 2. Measure the silhouette: its top and ground rows, and the column between the feet
 rows, cols = np.nonzero(mask)
 top, ground = int(rows.min()), int(rows.max()) + 1
-feet = rows >= ground - max(2, round(0.03 * (ground - top)))
-center = int(round(cols[feet].mean()))
+# The middle of both feet's outer edges: a drawing's far foot often stands a little higher, so the band is
+# taller than import_mesh's, and the middle of the extents doesn't lean toward the bigger or lower foot
+feet = rows >= ground - max(2, round(0.08 * (ground - top)))
+center = int(round((cols[feet].min() + cols[feet].max()) / 2))
 cfg_path = os.path.join(args.char_dir, "character.json")
 with open(cfg_path, encoding="utf-8") as f:
     cfg = json.load(f)
