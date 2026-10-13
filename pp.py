@@ -6,6 +6,7 @@
   python pp.py preview <character_dir> [--anim NAME ...] [--turnaround] [--compare]   review images + checks
   python pp.py render  <character_dir> [animation ...]      spritesheets + JSON in out/
   python pp.py view                                         open every sheet in characters/ and examples/ in the viewer
+  python pp.py play    <character_dir>                      play the model's actions in 3D in the browser
   python pp.py generate <character_dir> [<image>] [--seed N]   cut out the reference (or image) and make a 3D
                                                             model of it with TripoSG -> model/generated.glb
 
@@ -51,7 +52,8 @@ def blender(script, char_dir, args, verbose=False):
     blend = blend_path(char_dir)
     if script != "run.py" and not os.path.exists(blend):
         sys.exit(f"{blend} does not exist yet; build it with: python pp.py run {char_dir} <script.py>")
-    cmd = [find_blender(), "-b"]
+    # Factory settings: the user's add-ons (a Blender MCP server among them) stay out of the background run
+    cmd = [find_blender(), "-b", "--factory-startup"]
     if os.path.exists(blend):
         cmd.append(blend)
     cmd += ["--python-exit-code", "1", "-P", os.path.join(ROOT, "pp", script), "--", char_dir, *args]
@@ -64,7 +66,7 @@ def blender(script, char_dir, args, verbose=False):
     return proc.wait()
 
 
-DEFAULT_OUTPUT = {  # the PS1 look: flat-shaded low-poly facets in 5 dithered tones, no outline, 8 directions
+DEFAULT_OUTPUT = {  # the PS1 look: Gouraud-shaded low-poly facets in 5 dithered tones, no outline, 8 directions
     "frame": [64, 64],
     "pixels_per_unit": 17,
     "anchor": [32, 52],
@@ -128,6 +130,31 @@ def view():
     webbrowser.open("file:///" + path.replace(os.sep, "/").lstrip("/"))
 
 
+def play(char_dir, verbose=False):
+    """Export the model and its actions (pp/export.py), write <char_dir>/previews/play.html with them and the
+    character's render settings embedded, and open it in the browser."""
+    if blender("export.py", char_dir, [], verbose):
+        sys.exit("export failed")
+    with open(os.path.join(char_dir, "character.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+    with open(os.path.join(char_dir, "previews", "model.glb"), "rb") as f:
+        glb = "data:model/gltf-binary;base64," + base64.b64encode(f.read()).decode()
+    with open(os.path.join(char_dir, "previews", "model.json"), encoding="utf-8") as f:
+        fps = json.load(f)["fps"]
+    output = {**DEFAULT_OUTPUT, **cfg.get("output", {})}
+    data = {"name": cfg.get("name", os.path.basename(char_dir)), "glb": glb, "output": output,
+            "animations": cfg.get("animations", {}), "fps": fps}
+    with open(os.path.join(ROOT, "viewer", "play.html"), encoding="utf-8") as f:
+        html = f.read()
+    html = html.replace('<script type="importmap">', f"<script>window.PP_PLAY = {json.dumps(data)};</script>\n"
+                        '<script type="importmap">', 1)
+    path = os.path.join(char_dir, "previews", "play.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"wrote {path}")
+    webbrowser.open("file:///" + path.replace(os.sep, "/").lstrip("/"))
+
+
 def generate(char_dir, image, seed):
     """Cut the character out of an image (the character's reference by default) and run TripoSG on it, in
     its own Python environment: writes <char_dir>/analysis/mask.png and cutout.png, the silhouette's rows
@@ -155,6 +182,8 @@ def main():
         return new_character(os.path.abspath(argv[1]), argv[2])
     if argv == ["view"]:
         return view()
+    if len(argv) == 2 and argv[0] == "play":
+        return play(os.path.abspath(argv[1]), verbose)
     if len(argv) >= 2 and argv[0] == "generate":
         image = argv[2] if len(argv) % 2 else None
         opts = dict(zip(argv[2 + bool(image)::2], argv[3 + bool(image)::2]))

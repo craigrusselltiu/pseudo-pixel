@@ -37,8 +37,9 @@ a.end(24)                                    # last frame: 24 timeline frames = 
   shots, hits), key the `foot_ik` controls (rig.md) and move the hips. Moving the hips with FK legs
   moves the feet too, and the character floats.
 - **Give it life, calmly.** An idle is a slow, steady loop the player sees for seconds at a time:
-  a breath (hips up and down about a pixel, chest lifting, shoulders rising, head a beat later), soft
-  knees, a tail or cloth drifting out of phase, and at most one slow weight shift per loop. Busy idles
+  a breath in the upper body (the chest expanding and lifting, shoulders rising, head a beat later;
+  hips moving up and down read as crouching), a tail or cloth drifting out of phase, and at most one
+  slow weight shift per loop. Busy idles
   (bounces twice a second, heels popping, the head nodding with every beat) read as twitching at
   sprite size. Save the bounce for combat stances that need it, and even then one beat per second.
 - **Loops:** `action("walk", loop=True)` and `"loop": true` in `character.json`. `end(n)` adds a key
@@ -69,12 +70,41 @@ Lengths and beats as in a 3D action game. At 12 fps, every second is 12 sprite f
 
 | Animation | Length | Beats |
 |---|---|---|
-| idle | 2-3 s loop | one slow breath on soft knees (the hips about a pixel up and down), chest and shoulders lifting, head and arms settling a beat later, tail or cloth swaying slowly out of phase; at most one gentle weight shift |
+| idle | 2-3 s loop | one slow breath in the upper body: the chest expands and lifts (its `scale`, with the neck and upper arms scaled back so they keep their size) and the shoulders rise about a pixel, head and arms settling a beat later, tail or cloth swaying slowly out of phase; the hips stay put (a hip bob reads as crouching); at most one gentle weight shift |
 | walk | 0.8-1.2 s loop | contact, down, passing, up for each foot, with arm swing, hip sway and a little head bob |
 | run | 0.5-0.7 s loop | the walk's beats with more lean, bigger stride and a flight phase |
 | attack / shoot | 0.5-1.2 s | anticipation (0.15-0.3 s), a fast action (2-4 frames at 24 fps), follow-through and recoil, recovery back to the ready pose |
 | hit | 0.4-0.7 s | a sharp reaction away from the hit in 2-3 frames, a short hold, a recovery with overshoot |
 | death | 1-2 s | reaction, fall with overlap, settle on the ground, hold |
+
+## Gaits and secondary motion
+
+- **Arms against legs.** Walks and runs swing each arm with the opposite leg: the left leg forward, the
+  right arm forward. The pelvis turns with the forward leg, the chest turns against it, the head keeps
+  facing ahead. Arms swinging with the same-side leg read as marching.
+- **Feet along the travel.** Feet point where the character goes and land near its centre line. A rest
+  pose often has them turned out (`model.sole` follows the shoes): turn them in for walks and runs
+  (`foot_ik` Z) and bring them in from the stance width, or the stride reads as ice skating.
+- **Planted feet grip.** A planted foot slides back at the speed the body travels. Bezier keys ease in
+  and out at every key, so the foot skids: set the `foot_ik` location keys to `LINEAR`
+  (`anim.fcurves(act)`, then each keyframe point's `interpolation`).
+- **Grounded strides.** A trailing foot lifting more than about a third of the shin's length, or heel
+  angles over about 40 degrees, read as cartoonish; keep them for a stylised character.
+- **Secondary motion is slower.** Tails, ears, antennas, cables and aerials sway slower than the cycle
+  that drives them: one sway over two or more strides, every segment the same way, each a beat behind
+  the one before. Segments swinging opposite ways flick like a rattle. Make the loop as long as the
+  slow motion (two strides).
+- **Secondary motion reacts.** In an action, the same parts swing against the anticipation, whip
+  across a beat after the body unwinds, overshoot past centre and settle.
+
+## Props that change hands or leave
+
+A prop that appears, moves to another hand or leaves (a card plucked from a fan and thrown, a grenade
+pulled from a belt, a dropped magazine) is one object for each place it shows, each on its own bone
+(`rig.add_bones`, the object parented to it), shown and hidden with scale keys (`{"scale": (0, 0, 0)}`)
+whose interpolation is `CONSTANT`, so they switch on one frame. Key it hidden in every other action. What
+is thrown becomes the engine's projectile on the release frame: hide it in the hand there and tell the
+user which sprite frame that is.
 
 ## Readability at sprite size
 

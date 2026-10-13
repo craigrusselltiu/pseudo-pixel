@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pseudo-pixel player</title>
+<style>
+  :root {
+    --bg: #f4f4f6; --panel: #ffffff; --text: #1d1f27; --muted: #6b6f80; --line: #dcdde3;
+    --accent: #3a6df0; --accent-text: #ffffff; --check-a: #e6e6ea; --check-b: #d2d3da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171c; --panel: #1f2027; --text: #e7e8ee; --muted: #9a9db0; --line: #30323d;
+      --accent: #5b86f5; --accent-text: #ffffff; --check-a: #2a2c35; --check-b: #23242c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  .app { display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li button { width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 6px 8px;
+              border-radius: 6px; cursor: pointer; font: inherit; display: flex; justify-content: space-between; }
+  li button:hover { background: var(--bg); }
+  li button.on { background: var(--accent); color: var(--accent-text); }
+  li button small { opacity: .7; }
+  main { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; background: var(--panel);
+         border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .bar label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .bar button { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 6px;
+                padding: 4px 10px; font: inherit; cursor: pointer; }
+  .bar button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .bar output { color: var(--text); min-width: 3.5em; display: inline-block; font-variant-numeric: tabular-nums; }
+  #scrub { flex: 1; min-width: 160px; }
+  .stage { flex: 1; min-height: 240px; position: relative; border-radius: 8px; border: 1px solid var(--line);
+           overflow: hidden; display: grid; place-items: center;
+           background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 16px 16px; }
+  .stage canvas { display: block; }
+  .stage.pixel canvas { image-rendering: pixelated; }
+  .compass { display: grid; grid-template-columns: repeat(3, 40px); gap: 4px; }
+  .compass button { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 6px;
+                    padding: 6px 0; font: inherit; cursor: pointer; }
+  .compass button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .compass button:disabled { visibility: hidden; }
+  .info { color: var(--muted); font-size: 12px; }
+  @media (max-width: 700px) {
+    .app { grid-template-columns: 1fr; height: auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+    .stage { height: 60vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1 id="title">pseudo-pixel</h1>
+    <h2>Actions</h2>
+    <ul id="actions"></ul>
+    <h2>View</h2>
+    <div class="compass" id="compass"></div>
+    <p class="info">Drag to orbit, wheel to zoom. A view button snaps to that sprite camera.</p>
+  </aside>
+  <main>
+    <div class="bar">
+      <button id="play">Pause</button>
+      <button id="prev" title="Previous sprite frame">&lt;</button>
+      <button id="next" title="Next sprite frame">&gt;</button>
+      <input id="scrub" type="range" min="0" max="1" step="0.0001" value="0">
+      <output id="frame"></output>
+    </div>
+    <div class="bar">
+      <label>Speed <input id="speed" type="range" min="0.1" max="2" step="0.05" value="1"><output id="speedv">1x</output></label>
+      <label><input id="loop" type="checkbox" checked> Loop</label>
+      <button id="sprite" title="Render at the sprite's frame size and fps">Sprite size</button>
+    </div>
+    <div class="stage" id="stage"></div>
+  </main>
+</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const D = window.PP_PLAY;  // {name, glb (data URI), output (character.json output), animations, fps}
+const out = D.output;
+const [fw, fh] = out.frame;
+const $ = (id) => document.getElementById(id);
+$("title").textContent = D.name;
+document.title = D.name + " - pseudo-pixel player";
+
+const stage = $("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+renderer.setClearColor(0x000000, 0);
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+const light = new THREE.DirectionalLight(0xffffff, 2.2);
+scene.add(new THREE.AmbientLight(0xffffff, 0.6), light, light.target);
+
+// Toon shading in the sheets' number of tones, so the bands look as they will in the sprites
+const steps = out.shading_steps || 4;
+const ramp = new THREE.DataTexture(new Uint8Array([...Array(steps)].flatMap((_, i) => {
+  const v = Math.round(255 * (0.45 + 0.55 * i / Math.max(1, steps - 1))); return [v, v, v, 255];
+})), steps, 1);
+ramp.minFilter = ramp.magFilter = THREE.NearestFilter;
+ramp.needsUpdate = true;
+
+// Blender view (yaw, elevation) -> camera direction in glTF space (Blender x, y, z -> x, z, -y)
+function toward(yaw, elev) {
+  const t = yaw * Math.PI / 180, e = elev * Math.PI / 180;
+  return new THREE.Vector3(Math.sin(t) * Math.cos(e), Math.sin(e), Math.cos(t) * Math.cos(e));
+}
+
+let mixer, actions = {}, current;
+let playing = true, sprite = false, view = Object.values(out.views)[0] ?? 90;
+
+new GLTFLoader().load(D.glb, (gltf) => {
+  const root = gltf.scene;
+  root.traverse((o) => {
+    if (o.isMesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      o.material = mats.map((m) => new THREE.MeshToonMaterial({ color: m.color, gradientMap: ramp }));
+      if (o.material.length === 1) o.material = o.material[0];
+    }
+  });
+  scene.add(root);
+  mixer = new THREE.AnimationMixer(root);
+  for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
+  const names = Object.keys(D.animations).filter((n) => actions[n]);
+  for (const n of Object.keys(actions)) if (!names.includes(n)) names.push(n);
+  $("actions").innerHTML = names.map((n) =>
+    `<li><button data-a="${n}">${n}<small>${(actions[n].getClip().duration * D.fps).toFixed(0)}f</small></button></li>`).join("");
+  $("actions").onclick = (e) => { const b = e.target.closest("button"); if (b) select(b.dataset.a); };
+  select(names[0]);
+  snap(view);
+  resize();
+  requestAnimationFrame(tick);
+});
+
+function select(name) {
+  if (current) current.stop();
+  current = actions[name];
+  if (!current) return;
+  const looped = D.animations[name]?.loop ?? true;
+  $("loop").checked = looped;
+  current.setLoop(looped ? THREE.LoopRepeat : THREE.LoopOnce);
+  current.clampWhenFinished = true;
+  current.reset().play();
+  for (const b of $("actions").querySelectorAll("button")) b.classList.toggle("on", b.dataset.a === name);
+}
+
+// Sprite views on a compass (screen up = the character's back)
+const order = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
+$("compass").innerHTML = order.map((k) =>
+  `<button data-v="${k}" ${k in out.views ? "" : "disabled"}>${k}</button>`).join("");
+$("compass").onclick = (e) => { const b = e.target.closest("button"); if (b && !b.disabled) snap(out.views[b.dataset.v]); };
+
+function snap(yaw) {
+  view = yaw;
+  for (const b of $("compass").querySelectorAll("button")) b.classList.toggle("on", out.views[b.dataset.v] === yaw);
+  // The sheet's framing: the origin lands on the anchor pixel
+  const target = new THREE.Vector3();
+  {
+    const ppu = out.pixels_per_unit, [ax, ay] = out.anchor;
+    const e = out.elevation * Math.PI / 180, t = yaw * Math.PI / 180;
+    const right = new THREE.Vector3(Math.cos(t), 0, -Math.sin(t));
+    const up = new THREE.Vector3(-Math.sin(t) * Math.sin(e), Math.cos(e), -Math.cos(t) * Math.sin(e));
+    target.addScaledVector(right, (fw / 2 - ax) / ppu).addScaledVector(up, (ay - fh / 2) / ppu);
+  }
+  controls.target.copy(target);
+  camera.position.copy(target).addScaledVector(toward(yaw, out.elevation), 20);
+  camera.zoom = 1;
+  controls.update();
+  resize();
+}
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (sprite) {  // the frame at its pixel size, scaled up by a whole number
+    const k = Math.max(1, Math.floor(Math.min(w / fw, h / fh)));
+    renderer.setPixelRatio(1);
+    renderer.setSize(fw, fh, false);
+    renderer.domElement.style.width = fw * k + "px";
+    renderer.domElement.style.height = fh * k + "px";
+    const half = Math.max(fw, fh) / out.pixels_per_unit / 2;
+    camera.left = -half * fw / Math.max(fw, fh); camera.right = -camera.left;
+    camera.top = half * fh / Math.max(fw, fh); camera.bottom = -camera.top;
+  } else {
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(w, h);
+    renderer.domElement.style.width = w + "px";
+    renderer.domElement.style.height = h + "px";
+    const half = Math.max(fw, fh) / out.pixels_per_unit * 0.6;  // the sheet's frame, with a margin
+    camera.left = -half * w / h; camera.right = half * w / h; camera.top = half; camera.bottom = -half;
+  }
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+// The light keeps the sheets' screen direction: light = right * lx - toward * ly + up * lz
+function aimLight() {
+  const [lx, ly, lz] = out.light;
+  const dir = new THREE.Vector3(), r = new THREE.Vector3(), u = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  r.setFromMatrixColumn(camera.matrixWorld, 0);
+  u.setFromMatrixColumn(camera.matrixWorld, 1);
+  light.position.copy(controls.target).addScaledVector(r, lx).addScaledVector(dir, ly).addScaledVector(u, lz);
+  light.target.position.copy(controls.target);
+}
+
+let last = performance.now();
+function tick(now) {
+  const dt = (now - last) / 1000 * Number($("speed").value);
+  last = now;
+  if (current && playing) mixer.update(dt);
+  if (current) {
+    const clip = current.getClip(), t = current.time;
+    if (sprite) {  // hold each pose for a sprite frame, as the sheet will
+      const shown = Math.floor(t * out.fps) / out.fps;
+      mixer.setTime(shown); current.time = t;
+    }
+    $("scrub").value = clip.duration ? t / clip.duration : 0;
+    $("frame").textContent = `frame ${Math.round(t * D.fps)} / ${Math.round(clip.duration * D.fps)}  `
+      + `sprite ${Math.floor(t * out.fps) + 1}`;
+  }
+  aimLight();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+$("play").onclick = () => {
+  playing = !playing;
+  $("play").textContent = playing ? "Pause" : "Play";
+  if (playing && current && !current.isRunning()) current.reset().play();
+};
+function step(n) {
+  if (!current) return;
+  playing = false; $("play").textContent = "Play";
+  const d = current.getClip().duration;
+  const t = Math.min(d, Math.max(0, (Math.floor(current.time * out.fps + 1e-6) + n) / out.fps));
+  current.paused = false; current.enabled = true; current.play();
+  current.time = t; mixer.update(0);
+}
+$("prev").onclick = () => step(-1);
+$("next").onclick = () => step(1);
+$("scrub").oninput = (e) => {
+  if (!current) return;
+  playing = false; $("play").textContent = "Play";
+  current.paused = false; current.enabled = true; current.play();
+  current.time = e.target.value * current.getClip().duration; mixer.update(0);
+};
+$("speed").oninput = (e) => { $("speedv").textContent = Number(e.target.value).toFixed(2) + "x"; };
+$("loop").onchange = (e) => { if (current) current.setLoop(e.target.checked ? THREE.LoopRepeat : THREE.LoopOnce); };
+$("sprite").onclick = () => {
+  sprite = !sprite;
+  $("sprite").classList.toggle("on", sprite);
+  stage.classList.toggle("pixel", sprite);
+  controls.enabled = !sprite;
+  renderer.setClearColor(0x000000, 0);
+  snap(view);
+};
+</script>
+</body>
+</html>

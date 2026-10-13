@@ -39,15 +39,20 @@ Give the agent the image and the animations you want:
 
 > Use pseudo-pixel to make sprites of `art/hero.png` with idle, run and attack.
 
+No usable image (only an idea, an old pixel sprite, an action pose)? Give it a name, a setting, the
+moves and any notes, and the agent writes a prompt for an image model and makes a clean model sheet
+first (or hands you the prompt to run in your own generator).
+
 The agent follows [skills/pseudo-pixel/SKILL.md](skills/pseudo-pixel/SKILL.md) and stops three times
 for your approval, with preview images:
 
 1. **The shape**: the generated 3D mesh next to the reference. Ask for another try if a limb or a
    weapon came out wrong.
 2. **The colours**: the low-poly model from every side and at sprite size. Point out anything that's
-   off ("the back of the hat should be brown", "the eyes disappear").
-3. **The motion**: contact sheets of every animation. Give notes like an animator would ("more
-   windup", "the idle is too busy").
+   off ("the back of the hat should be brown", "the eyes disappear"), or recolour faces yourself in
+   Blender and save.
+3. **The motion**: every animation in a 3D player in the browser (`pp.py play`) and as contact sheets.
+   Give notes like an animator would ("more windup", "the idle is too busy").
 
 Then it renders the sheets. Later you can ask for more: "add a hit animation", "make the hat bigger",
 "render at 96x96", "side view only", "8 fps". Say "skip the checkpoints" once you trust it.
@@ -55,6 +60,11 @@ Then it renders the sheets. Later you can ask for more: "add a hit animation", "
 Each character lives in `characters/<name>/`: the reference, `character.json` (render settings), the
 `.blend` (open it in Blender to see or edit anything), a numbered log of the scripts the agent ran,
 `previews/`, and `out/` with the sheets.
+
+With a Blender MCP server connected, you can keep the `.blend` open and work on it alongside the agent
+(repaint triangles, delete faces, scrub the actions): tell it you're editing, and it runs its scripts in
+your Blender and saves there instead of writing the file underneath you. Its own background Blender runs
+start with factory settings, so they never load your add-ons or disturb the MCP connection.
 
 ## Output
 
@@ -77,6 +87,7 @@ python pp.py run      <char_dir> <script.py>        # run a script against the .
 python pp.py inspect  <char_dir>                    # the .blend's objects, bones and actions as JSON
 python pp.py preview  <char_dir> [--compare] [--turnaround] [--anim NAME] [--view NAME]
 python pp.py render   <char_dir> [animation ...]    # spritesheets + JSON in out/
+python pp.py play     <char_dir>                    # play the model's actions in 3D in the browser
 python pp.py view                                   # play the sheets
 python -m unittest discover tests                   # tests
 ```

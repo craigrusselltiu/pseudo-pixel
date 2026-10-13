@@ -172,36 +172,45 @@ def loft(name, rings, bone="root", color="#808080", cap=(True, True), smooth=1, 
          thickness=0.0, armature=None):
     """A mesh through rings of equal point counts (quads between neighbours), capped at the ends,
     with subdivision `smooth` levels and smooth shading. closed=False leaves each ring open (a
-    shell such as an open coat; give it `thickness`). Parented to `bone` like build.part."""
+    shell such as an open coat; give it `thickness`). Parented to `bone` like build.part, or, with a
+    list of bones, skinned along that chain, each vertex rigidly on its nearest bone (a tail, a tentacle, a
+    hose that bends). color: one colour, or one per band between neighbouring rings (stripes, a hose's
+    bands); the caps take the first and last."""
     arm = armature or rig.armature()
     build.remove(name)
+    colors = [color] * (len(rings) - 1) if isinstance(color, str) else list(color)
+    slots = list(dict.fromkeys(colors))
     bm = bmesh.new()
     rows = [[bm.verts.new(p) for p in r] for r in rings]
     n = len(rings[0])
-    for a, b in zip(rows[:-1], rows[1:]):
+    for k, (a, b) in enumerate(zip(rows[:-1], rows[1:])):
         for i in range(n if closed else n - 1):
             j = (i + 1) % n
-            bm.faces.new((a[i], a[j], b[j], b[i]))
-    for end, row in ((cap[0], rows[0]), (cap[1], rows[-1])):
+            bm.faces.new((a[i], a[j], b[j], b[i])).material_index = slots.index(colors[k])
+    for end, row, c in ((cap[0], rows[0], colors[0]), (cap[1], rows[-1], colors[-1])):
         if end and closed:
             centre = bm.verts.new(sum((v.co for v in row), Vector()) / n)
             for i in range(n):
-                bm.faces.new((row[i], row[(i + 1) % n], centre))
+                bm.faces.new((row[i], row[(i + 1) % n], centre)).material_index = slots.index(c)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
     bm.free()
     for p in mesh.polygons:
-        p.use_smooth = True
+        p.use_smooth = smooth > 0
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.scene.collection.objects.link(obj)
-    obj.data.materials.append(build.material(color))
+    for c in slots:
+        obj.data.materials.append(build.material(c))
     if thickness:
         mod = obj.modifiers.new("solidify", "SOLIDIFY")
         mod.thickness, mod.offset = thickness, 0
     if smooth:
         mod = obj.modifiers.new("smooth", "SUBSURF")
         mod.levels = mod.render_levels = smooth
+    if not isinstance(bone, str):
+        _skin(obj, arm, list(bone))
+        return obj
     world = obj.matrix_world.copy()
     obj.parent, obj.parent_type, obj.parent_bone = arm, "BONE", bone
     pose_position, arm.data.pose_position = arm.data.pose_position, "REST"  # placed in the rest pose,
@@ -210,6 +219,21 @@ def loft(name, rings, bone="root", color="#808080", cap=(True, True), smooth=1, 
     arm.data.pose_position = pose_position
     obj["pp_model"] = json.dumps({"bone": bone})
     return obj
+
+
+def _skin(obj, arm, bones):
+    """Skin obj to the armature with each vertex rigidly on its nearest bone of the chain `bones`."""
+    segs = _segments(arm, bones)
+    world = obj.matrix_world.copy()
+    obj.parent = None
+    obj.matrix_world = world
+    for b in bones:
+        obj.vertex_groups.new(name=b)
+    for v in obj.data.vertices:
+        obj.vertex_groups[_nearest_on(world @ v.co, segs)[1]].add([v.index], 1.0, "REPLACE")
+    obj.parent = arm
+    obj.matrix_world = world
+    obj.modifiers.new("armature", "ARMATURE").object = arm
 
 
 def flatten(image, mask, palette, out, radius=4, shades=None):
@@ -678,7 +702,7 @@ def import_mesh(path, name="body", turn=90.0, height=None, faces=0, min_piece=0.
     co = np.array([v.co[:] for v in bm.verts])
     lo = co[:, 2].min()
     feet = co[co[:, 2] < lo + 0.03 * (co[:, 2].max() - lo)]
-    shift = Vector((-feet[:, 0].mean(), -feet[:, 1].mean(), -lo))
+    shift = Vector((-feet[:, 0].mean(), -(feet[:, 1].min() + feet[:, 1].max()) / 2, -lo))  # as generate's centre line
     bmesh.ops.translate(bm, verts=bm.verts, vec=shift)
     bm.to_mesh(mesh)
     bm.free()
@@ -942,6 +966,112 @@ def limb_weights(obj, arm, limbs, radius=0.16, blend=0.05):
     print(f"limb_weights: {len(bridge)} bridging faces cut, {len(new)} patches, {len(side_of)} limb vertices")
 
 
+def detach(obj, arm, parts, weld=0.2):
+    """Separate parts that a mesh has joined to the body, so each moves without dragging the other along.
+
+    A generated surface fuses whatever touches: arms against a coat, a fist on a vest, wheels in their
+    arches, a turret on a hull. limb_weights frees limbs on the generated mesh, but lowpoly's reduction and
+    its weight transfer can join them again, and the body then stretches into spikes when the part moves
+    (pp.py preview reports STRETCHED frames). parts: bone chains, each a list of bones or a (bones, weld)
+    pair. Every face goes to the part whose bones most of its vertices follow, or else the body; each
+    part's faces are split from the rest, then welded back within `weld` of the chain's first joint, where
+    the part really joins (a shoulder, a hip: 0.2), or not at all (0: a wheel, a hatch). Each side's
+    vertices keep only their own bones (the part's chain, or everything else), and the openings on both
+    sides are closed with faces of their neighbours' colour. Run it on the low-poly model, after lowpoly
+    and before animating; lowpoly rebuilds from the guide, so run it again after that."""
+    parts = [(c, weld) if isinstance(c[0], str) else c for c in parts]
+    names = {g.index: g.name for g in obj.vertex_groups}
+    index = {g.name: g.index for g in obj.vertex_groups}
+    segs = {b.name: (b.name, b.head_local, b.tail_local) for b in arm.data.bones if b.use_deform}
+    part_of = {b: k for k, (chain, _) in enumerate(parts) for b in chain}
+    joints = [(arm.data.bones[c[0]].head_local, w) for c, w in parts]
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    dl = bm.verts.layers.deform.active
+
+    def owner(v):
+        w = v[dl]
+        return part_of.get(names[max(w.items(), key=lambda kv: kv[1])[0]], -1) if w else -1
+
+    def side(f):
+        votes = [owner(v) for v in f.verts]
+        k = max(set(votes), key=votes.count)
+        return k if votes.count(k) * 2 > len(votes) else -1
+
+    for k in range(len(parts)):
+        faces = [f for f in bm.faces if side(f) == k]
+        if faces:
+            bmesh.ops.split(bm, geom=faces, use_only_faces=False)
+    near = [v for v in bm.verts if any((v.co - j).length < w for j, w in joints)]
+    bmesh.ops.remove_doubles(bm, verts=near, dist=1e-5)
+
+    moved = 0
+    for v in bm.verts:
+        sides = {side(f) for f in v.link_faces}
+        if len(sides) != 1:
+            continue  # a welded joint keeps its blend
+        k = sides.pop()
+        own = set(parts[k][0]) if k >= 0 else set(segs) - set(part_of)
+        w = v[dl]
+        drop = [g for g in w.keys() if names[g] not in own]
+        if not drop:
+            continue
+        for g in drop:
+            del w[g]
+        if not w.keys():
+            nearest = _nearest_on(v.co, [segs[b] for b in own if b in segs])[1]
+            if nearest not in index:
+                index[nearest] = obj.vertex_groups.new(name=nearest).index
+                names[index[nearest]] = nearest
+            w[index[nearest]] = 1.0
+        moved += 1
+
+    new = bmesh.ops.holes_fill(bm, edges=[e for e in bm.edges if e.is_boundary], sides=0)["faces"]
+    loops, seen = [], set()
+    for e in [e for e in bm.edges if e.is_boundary]:  # loops holes_fill couldn't close
+        if e in seen:
+            continue
+        stack, loop = [e], []
+        while stack:
+            x = stack.pop()
+            if x not in seen:
+                seen.add(x)
+                loop.append(x)
+                stack += [y for u in x.verts for y in u.link_edges if y.is_boundary and y not in seen]
+        loops.append(loop)
+    for loop in loops:
+        new += [g for g in bmesh.ops.triangle_fill(bm, use_beauty=True, edges=loop)["geom"]
+                if isinstance(g, bmesh.types.BMFace)]
+    smooth = sum(f.smooth for f in bm.faces) * 2 > len(bm.faces)  # caps shade like the rest (lowpoly's shading)
+    for f in new:
+        f.material_index = _majority_material(f)
+        f.smooth = smooth
+    bmesh.ops.triangulate(bm, faces=[f for f in new if f.is_valid])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    left = sum(1 for e in bm.edges if e.is_boundary)
+    bm.to_mesh(obj.data)
+    bm.free()
+    print(f"detach: {len(parts)} parts, {moved} vertices reweighted, {len(new)} faces closing the openings"
+          + (f", {left} open edges left" if left else ""))
+
+
+def sole(obj, ankle, below=0.06, reach=0.35):
+    """(heel, toe): the ends of the foot, hoof or shoe under `ankle`, along the long axis of the mesh's
+    vertices within `below` of the ground and `reach` of the ankle on its side of the centre line. A foot
+    bone runs from the ankle to the toe; shoes are often turned out, and a bone that points straight ahead
+    while the shoe doesn't makes the foot twist off it when it bends."""
+    co = _co(obj)
+    a = np.array(ankle[:2], float)
+    ground = co[:, 2].min()
+    s = co[(co[:, 2] < ground + below) & (np.hypot(co[:, 0] - a[0], co[:, 1] - a[1]) < reach)
+           & (np.sign(co[:, 1]) == np.sign(a[1]))][:, :2]
+    c = s.mean(0)
+    axis = np.linalg.eigh(np.cov((s - c).T))[1][:, -1]
+    axis = axis if axis[0] > 0 else -axis
+    t = (s - c) @ axis
+    return Vector((*(c + axis * t.min()), ground)), Vector((*(c + axis * t.max()), ground))
+
+
 def _tube(name, guide, arm, bones, sides=8, slices=40, max_band=0.2):
     """A low-poly tube rebuilt over a generated tail (or any long round part) on `bones`: `sides`-sided
     rings fitted to the guide's surface along the tail's centreline, with a ring on every colour boundary,
@@ -1029,34 +1159,40 @@ def _tube(name, guide, arm, bones, sides=8, slices=40, max_band=0.2):
         k = min(ring_ids) if len(ring_ids) == len(p.vertices) else (0 if min(ring_ids) == 0 else len(band) - 1)
         p.material_index = slot[band[k]]
         p.use_smooth = False
-    # Each vertex rigidly on its nearest bone; the tube deforms with the armature like the body
-    world = tube.matrix_world.copy()
-    tube.parent = None
-    tube.matrix_world = world
-    for b in bones:
-        tube.vertex_groups.new(name=b)
-    for v in tm.vertices:
-        tube.vertex_groups[_nearest_on(v.co, segs)[1]].add([v.index], 1.0, "REPLACE")
-    tube.parent = arm
-    tube.matrix_world = world
-    tube.modifiers.new("armature", "ARMATURE").object = arm
+    _skin(tube, arm, bones)  # each vertex rigidly on its nearest bone; it deforms with the armature like the body
     del tube["pp_model"]
     return tube, replaced
 
 
-def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
+def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3, method="collapse", shading="smooth",
+            clean=True):
     """Turn the rigged, painted generated mesh `name` into a PS1-style low-poly model, as PS1 artists built
     low-poly models over high-poly sculpts. The generated mesh is the guide: a copy is smoothed (so the
     reduction makes broad planes, not crumpled ones) and reduced by edge collapse to a triangle budget per
-    zone, spent where it shows: budget {"face": n, "head": n, "body": n}, default 450, 300, 650 (Crash
-    Bandicoot had about 500-700 triangles, Spyro about 410). The head is everything above the neck (or
+    zone, spent where it shows: budget {"face": n, "head": n, "body": n}, default 1000, 700, 1800 (about
+    3500: late-PS1 cutscene and early-PS2 density; the 500-700 of Crash Bandicoot or Spyro's 410 read as
+    too blocky at sprite size). The head is everything above the neck (or
     head) bone's head, the face its front; a rig without a head bone (a vehicle, a blob) is one zone with
     the whole budget. Vertices where two of the guide's colours meet collapse last (their weight in the
     collapse is `borders`; 1 ignores colour), so the polygons follow the colour borders, as PS1 modellers
     laid edges along them: borders stay where they are and small features (eyes, lights, badges) keep
     their own polygons instead of turning into stray triangles. No textures: every triangle takes one colour, the majority of the guide's
-    paint under it, and is flat shaded, so the facets read at sprite size. Weights come from the guide, so
-    the rig and any actions work unchanged.
+    paint under it. Weights come from the guide, so the rig and any actions work unchanged.
+
+    shading: "smooth" (Gouraud, as PS1 hardware shaded) or "flat". A reduced generated surface is a field
+    of irregular triangles at slightly different angles: flat shaded, each takes its own toon step and the
+    dithering between them, and the model reads as choppy static. Smooth shading keeps the silhouette
+    faceted and makes the toon bands follow the broad forms. Use "flat" only for hard-surface subjects
+    (a crate, a robot) whose planes are real.
+
+    method: "collapse" (edge collapse, borders kept as above) or "quad": QuadriFlow remeshes the smoothed
+    copy into even quads (colour borders marked sharp so its edges follow them where it can), split into
+    triangles. Even faces deform cleanly in animation and have no slivers; colour borders come out more
+    stepped. The budget's total applies (no zones). Falls back to "collapse" if QuadriFlow fails (it needs a
+    closed mesh).
+
+    clean: a face whose neighbours all share one other colour takes that colour (single-triangle specks
+    where the guide's paint was noisy). Pass False if a one-triangle feature (an eye) disappears.
 
     tubes: {name: [bones]} rebuilds long round parts (a tail) as 8-sided tubes fitted to the guide's faces
     on those bones, with a ring on every colour boundary, so each stripe is its own band (reduced with the
@@ -1064,7 +1200,7 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
 
     The guide stays in the .blend as `<name>_hi`, hidden from the render; calling lowpoly again rebuilds
     from it (to change the budget, or after repainting or reweighting the guide)."""
-    budget = {"body": 650, "head": 300, "face": 450, **(budget or {})}
+    budget = {"body": 1800, "head": 700, "face": 1000, **(budget or {})}
     tubes = tubes or {}
     arm = rig.armature()
     guide = bpy.data.objects.get(name + "_hi")
@@ -1080,6 +1216,8 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
     replaced, tube_tris = set(), 0
     for tname, bones in tubes.items():
         tube, faces = _tube(tname, guide, arm, bones)
+        for p in tube.data.polygons:
+            p.use_smooth = shading == "smooth"
         replaced |= set(faces)
         tube_tris += sum(len(p.vertices) - 2 for p in tube.data.polygons)
     lp = bpy.data.objects.new(name, gm.copy())
@@ -1115,8 +1253,11 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
     mod = lp.modifiers.new("smooth", "LAPLACIANSMOOTH")
     mod.iterations, mod.lambda_factor, mod.use_volume_preserve = smooth, 1.0, True
     bpy.ops.object.modifier_apply(modifier=mod.name)
-    lp.vertex_groups.new(name="pp_reduce")
-    for z in budget:
+    if method == "quad" and not _quadriflow(lp, sum(budget.values()) // 2):
+        method = "collapse"
+    if method == "collapse":
+        lp.vertex_groups.new(name="pp_reduce")
+    for z in budget if method == "collapse" else ():
         vg = lp.vertex_groups["pp_reduce"]  # looked up again: applying a modifier invalidates the old one
         colours = [set() for _ in lp.data.vertices]  # vertices where two colours meet collapse last
         for p in lp.data.polygons:
@@ -1130,7 +1271,8 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
         mod.ratio = min(1.0, (tris() - tris(z) + budget[z]) / tris())
         mod.vertex_group = vg.name
         bpy.ops.object.modifier_apply(modifier=mod.name)
-    lp.vertex_groups.remove(lp.vertex_groups["pp_reduce"])
+    if "pp_reduce" in lp.vertex_groups:
+        lp.vertex_groups.remove(lp.vertex_groups["pp_reduce"])
 
     # 3. One colour per triangle, the majority of the guide's paint under it; flat shading
     bvh = BVHTree.FromPolygons([v.co for v in gm.vertices], [p.vertices for p in gm.polygons])
@@ -1143,8 +1285,10 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
                 votes[guide_mat[idx]] = votes.get(guide_mat[idx], 0) + 1
         if votes:
             p.material_index = max(votes, key=votes.get)
-        p.use_smooth = False
-    with bpy.context.temp_override(object=lp, active_object=lp):  # the guide's smoothed normals hide the facets
+        p.use_smooth = shading == "smooth"
+    if clean:
+        _despeckle(lp.data)
+    with bpy.context.temp_override(object=lp, active_object=lp):  # the guide's custom normals don't fit the new faces
         bpy.ops.mesh.customdata_custom_splitnormals_clear()
 
     # 4. Weights from the guide at rest; then the guide is hidden
@@ -1169,3 +1313,40 @@ def lowpoly(name="body", budget=None, tubes=None, smooth=6, borders=0.3):
     guide.hide_set(True)
     print(f"lowpoly {name}: {tris()} triangles {({z: tris(z) for z in budget})}, tubes {tube_tris} triangles")
     return lp
+
+
+def _quadriflow(obj, faces):
+    """Remesh obj in place into about `faces` even quads, then triangles, with QuadriFlow. Edges between two
+    colours are marked sharp first so the quads line up with them. False if QuadriFlow fails."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    for e in bm.edges:
+        f = e.link_faces
+        e.smooth = not (len(f) == 2 and f[0].material_index != f[1].material_index)
+    bm.to_mesh(obj.data)
+    bm.free()
+    before = len(obj.data.polygons)
+    with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj]):
+        try:
+            bpy.ops.object.quadriflow_remesh(target_faces=faces, use_preserve_sharp=True, use_mesh_symmetry=False)
+        except RuntimeError as e:
+            print(f"lowpoly: QuadriFlow failed ({e}), reducing by edge collapse instead")
+            return False
+    if len(obj.data.polygons) == before:
+        print("lowpoly: QuadriFlow left the mesh unchanged, reducing by edge collapse instead")
+        return False
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method="BEAUTY")
+    bm.to_mesh(obj.data)
+    bm.free()
+    return True
+
+
+def _despeckle(mesh):
+    """A face whose edge neighbours all share one colour other than its own takes theirs."""
+    near = _neighbours(mesh)
+    for p in mesh.polygons:
+        around = {mesh.polygons[q].material_index for q in near[p.index] - {p.index}}
+        if len(around) == 1 and p.material_index not in around:
+            p.material_index = around.pop()

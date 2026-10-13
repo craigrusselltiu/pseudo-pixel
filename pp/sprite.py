@@ -60,6 +60,10 @@ def _views(opts):
 def anim_options(cfg, name):
     own = cfg["animations"].get(name, {})
     opts = {**cfg["output"], **own}
+    anchor, (w, h) = cfg["output"]["anchor"], cfg["output"]["frame"]
+    if "frame" in own and "anchor" not in own and not isinstance(anchor, str):
+        # A bigger frame keeps the character where it stands: as far from the bottom, centred the same
+        opts["anchor"] = [anchor[0] + (own["frame"][0] - w) / 2, anchor[1] + own["frame"][1] - h]
     if "views" in own:
         opts.pop("view_names", None)
     return _views(opts)

@@ -7,7 +7,7 @@ differ from the renderer's defaults).
 
 | Key | `pp.py new` (renderer default) | Meaning |
 |---|---|---|
-| `frame` | `[64, 64]` (required) | Frame size in pixels, `[w, h]` |
+| `frame` | `[64, 64]` (required) | Frame size in pixels, `[w, h]`. An animation's own `frame` without its own `anchor` moves the anchor with it (as far from the bottom, centred the same), so the character stands in the same place in every sheet |
 | `pixels_per_unit` | `17` (required) | Scale: pixels per Blender unit, the same for every animation |
 | `fps` | `12` (required) | Sprite frame rate: how many frames are sampled per second of animation (the Blender timeline runs at 24 fps) |
 | `anchor` | `[32, 52]` (renderer: `"bottom-center"`) | Pixel the root's ground position maps to: `bottom-center`, `center`, `bottom-left`, or `[x, y]`. Raise it from the bottom when the camera looks down: parts toward the camera draw below the ground point |
